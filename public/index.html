@@ -38,8 +38,12 @@
         <div class="desc-row">
           <textarea id="moodDesc" placeholder="发生了什么？（可不填）" maxlength="500" rows="2"></textarea>
         </div>
-        <div class="record-actions">
+        <div class="time-pick">
           <span class="time-hint" id="timeHint">记录时间：现在</span>
+          <button type="button" class="time-link" id="timeEditBtn">自选时间</button>
+        </div>
+        <input type="datetime-local" id="customTime" class="field-time" hidden />
+        <div class="record-actions">
           <button class="btn-primary" id="saveMoodBtn" type="button">记下来 ✎</button>
         </div>
       </section>
@@ -132,7 +136,7 @@
       <label class="field-label">事件描述</label>
       <textarea id="editDesc" maxlength="500" rows="3" placeholder="发生了什么？（可不填）"></textarea>
       <label class="field-label">时间</label>
-      <input type="time" id="editTime" class="field-time" />
+      <input type="datetime-local" id="editTime" class="field-time" />
       <div class="modal-actions">
         <button class="btn-ghost" id="editCancel" type="button">取消</button>
         <button class="btn-primary" id="editSave" type="button">保存</button>

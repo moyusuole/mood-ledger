@@ -11,6 +11,7 @@
   var editingId = null;
   var expandedRow = null;       // 当前展开完整描述的记录 id
   var currentDetailMood = '';   // 明细页对应的情绪
+  var customTimeMode = false;   // 是否启用了自选时间
   var toastTimer = null;
 
   function $(id) { return document.getElementById(id); }
@@ -106,14 +107,49 @@
   function saveRecord() {
     if (!selectedMood) { toast('先选一个情绪吧'); return; }
     var desc = el.moodDesc ? el.moodDesc.value.trim() : '';
-    var res = S.addRecord({ mood: selectedMood, desc: desc });
+    var input = { mood: selectedMood, desc: desc };
+    // 启用了自选时间且填了合法值，就用用户选的时间；否则用此刻
+    if (customTimeMode && el.customTime && el.customTime.value) {
+      input.datetime = S.fromLocalInput(el.customTime.value);
+    }
+    var res = S.addRecord(input);
     if (!res.ok) { toast(res.error || '保存失败'); return; }
     el.moodDesc.value = '';
     clearSelection();
+    resetTimePick();
     // 保存后自动展开历史，让用户看到结果
     setHistoryOpen(true);
     renderHistory();
     toast('已记下 ' + res.record.emoji + ' ' + res.record.mood + ' · ' + res.record.time);
+  }
+
+  // ---- 自选时间 ----
+  function setTimeMode(custom) {
+    customTimeMode = !!custom;
+    if (!el.timeEditBtn || !el.customTime) return;
+    el.timeEditBtn.textContent = custom ? '用此刻时间' : '自选时间';
+    el.customTime.hidden = !custom;
+    if (custom) {
+      // 预填为当前本地时间，方便小幅度调整
+      if (!el.customTime.value) el.customTime.value = S.toLocalInput(S.formatNow());
+      updateTimeHint();
+    } else {
+      updateTimeHint();
+    }
+  }
+  function updateTimeHint() {
+    if (!el.timeHint) return;
+    if (customTimeMode && el.customTime && el.customTime.value) {
+      el.timeHint.textContent = '记录时间：' + S.fromLocalInput(el.customTime.value);
+    } else {
+      el.timeHint.textContent = '记录时间：现在';
+    }
+  }
+  function resetTimePick() {
+    customTimeMode = false;
+    if (el.timeEditBtn) el.timeEditBtn.textContent = '自选时间';
+    if (el.customTime) { el.customTime.hidden = true; el.customTime.value = ''; }
+    updateTimeHint();
   }
 
   function setHistoryOpen(open) {
@@ -200,7 +236,7 @@
       return '<option value="' + escapeHtml(m.name) + '"' + (m.name === rec.mood ? ' selected' : '') + '>' + m.emoji + ' ' + escapeHtml(m.name) + '</option>';
     }).join('');
     el.editDesc.value = rec.desc || '';
-    el.editTime.value = rec.time || '12:00';
+    el.editTime.value = S.toLocalInput(rec.datetime) || '';
     el.editModal.hidden = false;
   }
   function closeEdit() { editingId = null; if (el.editModal) el.editModal.hidden = true; }
@@ -209,7 +245,7 @@
     var res = S.updateRecord(editingId, {
       mood: el.editMood.value,
       desc: el.editDesc.value.trim(),
-      time: el.editTime.value
+      datetime: S.fromLocalInput(el.editTime.value)
     });
     if (!res.ok) { toast(res.error || '保存失败'); return; }
     closeEdit();
@@ -252,6 +288,12 @@
     if ($('historyToggle')) $('historyToggle').addEventListener('click', function () {
       setHistoryOpen(el.historyWrap.hidden);
     });
+
+    // 自选时间：切换模式 + 实时更新提示
+    if (el.timeEditBtn) el.timeEditBtn.addEventListener('click', function () {
+      setTimeMode(!customTimeMode);
+    });
+    if (el.customTime) el.customTime.addEventListener('input', updateTimeHint);
 
     document.querySelectorAll('.tab').forEach(function (t) {
       t.addEventListener('click', function () {
@@ -338,6 +380,9 @@
       editMood: $('editMood'),
       editDesc: $('editDesc'),
       editTime: $('editTime'),
+      customTime: $('customTime'),
+      timeEditBtn: $('timeEditBtn'),
+      timeHint: $('timeHint'),
       importInput: $('importInput')
     };
     buildMoodPicker();

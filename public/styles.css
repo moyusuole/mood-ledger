@@ -96,6 +96,16 @@ textarea:focus, .field-select:focus, .field-time:focus { outline: none; border-c
   display: flex; align-items: center; justify-content: space-between; margin-top: 12px; gap: 10px;
 }
 .time-hint { color: var(--ink-soft); font-size: 12px; }
+.time-pick {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 10px; gap: 10px;
+}
+.time-link {
+  border: none; background: #f4ece0; color: var(--brand-deep);
+  border-radius: 10px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.time-link:active { transform: scale(.96); }
+.field-time { margin-top: 8px; }
 .btn-primary {
   background: var(--brand-deep); color: #fff; border: none;
   border-radius: 12px; padding: 11px 20px; font-size: 15px; font-weight: 700;

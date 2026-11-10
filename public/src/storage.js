@@ -128,6 +128,17 @@
 
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
 
+  // datetime-local 输入框值是 "YYYY-MM-DDTHH:mm"，内部存储是 "YYYY-MM-DD HH:mm"
+  function toLocalInput(dt) {
+    return String(dt || '').replace(' ', 'T').slice(0, 16);
+  }
+  function fromLocalInput(v) {
+    return v ? String(v).replace('T', ' ') : '';
+  }
+  function validStored(dt) {
+    return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(dt || '');
+  }
+
   // 本地时间（非 UTC）：YYYY-MM-DD HH:mm
   function formatNow(d) {
     d = d || new Date();
@@ -171,6 +182,8 @@
     CATEGORIES: CATEGORIES,
     moodInfo: moodInfo,
     formatNow: formatNow,
+    toLocalInput: toLocalInput,
+    fromLocalInput: fromLocalInput,
 
     init: function () {
       return readRaw().then(function (raw) {
@@ -195,7 +208,8 @@
       if (!state) return { ok: false, error: '存储未初始化' };
       const mood = String((input && input.mood) || '').trim();
       if (!mood) return { ok: false, error: '请选择情绪' };
-      const dt = formatNow(); // 保存那一刻的本地时间，精确到分
+      // 默认用保存那一刻的本地时间；若调用方传了合法时间（自选时间）则用传入值
+      const dt = (input && validStored(input.datetime)) ? input.datetime : formatNow();
       const sp = splitDateTime(dt);
       const info = moodInfo(mood);
       const rec = normRecord({
@@ -222,8 +236,13 @@
         rec.category = info ? info.category : rec.category;
       }
       if (patch && patch.desc !== undefined) rec.desc = String(patch.desc).trim().slice(0, 500);
-      // 时间允许手动改（HH:mm），日期保持创建当天
-      if (patch && patch.time && /^\d{2}:\d{2}$/.test(patch.time)) {
+      // 时间允许手动改：优先完整日期时间 datetime（YYYY-MM-DD HH:mm），否则仅改时分（日期不变）
+      if (patch && validStored(patch.datetime)) {
+        rec.datetime = patch.datetime;
+        const sp = splitDateTime(patch.datetime);
+        rec.date = sp.date;
+        rec.time = sp.time;
+      } else if (patch && patch.time && /^\d{2}:\d{2}$/.test(patch.time)) {
         rec.time = patch.time;
         rec.datetime = rec.date + ' ' + patch.time;
       }
