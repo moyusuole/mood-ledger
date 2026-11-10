@@ -1,0 +1,18 @@
+{
+  "appId": "com.you.mood",
+  "appName": "情绪账本",
+  "webDir": "public",
+  "plugins": {
+    "CapacitorUpdater": {
+      "updateUrl": "https://clockin-update-server.onrender.com/updates",
+      "autoUpdate": "off",
+      "allowModifyUrl": true,
+      "resetWhenUpdate": true,
+      "autoDeletePrevious": true,
+      "autoDeleteFailed": true,
+      "persistModifyUrl": true,
+      "appReadyTimeout": 10000,
+      "responseTimeout": 20
+    }
+  }
+}

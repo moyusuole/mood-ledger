@@ -1,0 +1,14 @@
+node_modules/
+.npm-cache/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.apk
+public/vendor/
+web.zip
+updates/
+bundle-dist/
+.DS_Store
+
+# GitHub Desktop 误建的错误嵌套目录（保留数据但不提交）
+mood_mobile/
