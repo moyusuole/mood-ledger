@@ -6,6 +6,7 @@
   'use strict';
 
   var S = root.MoodStorage;
+  var M = root.MoodMedia;
   var el = {};
   var selectedMood = '';
   var editingId = null;
@@ -14,6 +15,8 @@
   var customTimeMode = false;   // 是否启用了自选时间
   var historyView = 'group';    // 记录页视图：group=按日期 / timeline=时间线
   var pendingDeleteId = null;   // 待删除记录 id（确认弹窗用）
+  var pendingMedia = [];        // 记录表单待保存的媒体引用
+  var editMedia = [];           // 编辑弹层当前媒体（含原有 + 新增）
   var statRange = { type: 'month', value: '' }; // 统计时间范围
   var imgCanvas = null;         // 当前预览图片 canvas（保存用）
   var imgName = 'mood.png';
@@ -83,6 +86,15 @@
       + (summary ? '<div class="rec-desc">' + escapeHtml(summary) + '</div>' : '')
       + '</div>';
   }
+  function mediaHtml(r) {
+    if (!r.media || !r.media.length) return '';
+    var items = r.media.map(function (m) {
+      return '<button type="button" class="media-thumb" data-media="' + escapeHtml(m.id) + '" data-mtype="' + escapeHtml(m.type) + '">'
+        + (m.type === 'video' ? '<span class="mt-play">▶</span>' : '<span class="mt-ph"></span>')
+        + '</button>';
+    }).join('');
+    return '<div class="rec-media">' + items + '</div>';
+  }
   function detailHtmlOf(r) {
     var desc = r.desc || '';
     var isOpen = expandedRow === r.id;
@@ -96,6 +108,7 @@
         return '<div class="rec-row" data-id="' + r.id + '">'
           + '<div class="rec-emoji">' + r.emoji + '</div>'
           + recMainHtml(r)
+          + mediaHtml(r)
           + '<div class="rec-right"><span class="rec-time">' + escapeHtml(r.time) + '</span>' + recOpsHtml(r) + '</div>'
           + '</div>' + detailHtmlOf(r);
       }).join('');
@@ -120,6 +133,7 @@
               + recOpsHtml(r)
             + '</div>'
             + (desc ? '<div class="rec-desc">' + escapeHtml(desc.length > 40 ? desc.slice(0, 40) + '…' : desc) + '</div>' : '')
+          + mediaHtml(r)
           + '</div>'
           + detailHtmlOf(r)
         + '</div>'
@@ -151,12 +165,30 @@
     }
     if ($('historyEmpty')) $('historyEmpty').hidden = true;
     list.innerHTML = (historyView === 'timeline') ? renderTimelineHtml(S.getRecords()) : renderGroupHtml(groups);
+    hydrateMedia(list);
+  }
+
+  // 记录行里的媒体缩略图是异步取 URL 的，渲染后再补填充
+  function hydrateMedia(scope) {
+    if (!scope || !M) return;
+    scope.querySelectorAll('.media-thumb').forEach(function (btn) {
+      if (btn.dataset.done) return;
+      var ref = { id: btn.getAttribute('data-media'), type: btn.getAttribute('data-mtype') };
+      M.getUrl(ref).then(function (url) {
+        if (!url) return;
+        btn.dataset.done = '1';
+        if (ref.type === 'video') return; // 视频保留 ▶ 占位
+        var im = document.createElement('img');
+        im.src = url; im.alt = ''; im.className = 'mt-img';
+        btn.insertBefore(im, btn.firstChild);
+      }).catch(function () {});
+    });
   }
 
   function saveRecord() {
     if (!selectedMood) { toast('先选一个情绪吧'); return; }
     var desc = el.moodDesc ? el.moodDesc.value.trim() : '';
-    var input = { mood: selectedMood, desc: desc };
+    var input = { mood: selectedMood, desc: desc, media: pendingMedia.slice() };
     // 启用了自选时间且填了合法值，就用用户选的时间；否则用此刻
     if (customTimeMode && el.customTime && el.customTime.value) {
       input.datetime = S.fromLocalInput(el.customTime.value);
@@ -166,6 +198,8 @@
     el.moodDesc.value = '';
     clearSelection();
     resetTimePick();
+    pendingMedia = [];
+    renderMediaPreview(el.recordMediaPrev, pendingMedia, true, removePendingMedia);
     // 保存后自动展开历史，让用户看到结果
     setHistoryOpen(true);
     renderHistory();
@@ -302,7 +336,8 @@
           + '<div class="rec-emoji">' + r.emoji + '</div>'
           + '<div class="rec-main"><div class="rec-line1"><span class="rec-mood">' + escapeHtml(r.mood) + '</span></div>'
             + (r.desc ? '<div class="rec-desc">' + escapeHtml(r.desc.length > 20 ? r.desc.slice(0,20)+'…' : r.desc) + '</div>' : '')
-          + '</div>'
+            + '</div>'
+          + mediaHtml(r)
           + '<div class="rec-right"><span class="rec-time">' + escapeHtml(r.time) + '</span>'
             + '<div class="rec-ops">'
               + '<button type="button" class="edit" data-act="edit" data-id="' + r.id + '">改</button>'
@@ -313,6 +348,7 @@
         + '<div class="date-head"><span>' + escapeHtml(g.date) + '</span><span class="day-sum">' + g.items.length + ' 条</span></div>'
         + '<div class="date-card">' + rows + '</div></div>';
     }).join('');
+    hydrateMedia(list);
   }
 
   // ---- 编辑弹层 ----
@@ -325,15 +361,24 @@
     }).join('');
     el.editDesc.value = rec.desc || '';
     el.editTime.value = S.toLocalInput(rec.datetime) || '';
+    editMedia = (rec.media || []).map(function (m) { return { id: m.id, type: m.type, ext: m.ext }; });
+    renderMediaPreview(el.editMediaPrev, editMedia, true, removeEditMedia);
     el.editModal.hidden = false;
   }
   function closeEdit() { editingId = null; if (el.editModal) el.editModal.hidden = true; }
   function saveEdit() {
     if (!editingId) return;
+    // 找出被删掉的旧媒体，清理孤立文件
+    var rec = S.getRecords().find(function (r) { return r.id === editingId; });
+    var oldIds = (rec && rec.media ? rec.media : []).map(function (m) { return m.id; });
+    var keptIds = editMedia.map(function (m) { return m.id; });
+    var removed = oldIds.filter(function (id) { return keptIds.indexOf(id) < 0; });
+    removed.forEach(function (id) { if (!S.isMediaUsed(id)) M.remove({ id: id }); });
     var res = S.updateRecord(editingId, {
       mood: el.editMood.value,
       desc: el.editDesc.value.trim(),
-      datetime: S.fromLocalInput(el.editTime.value)
+      datetime: S.fromLocalInput(el.editTime.value),
+      media: editMedia.slice()
     });
     if (!res.ok) { toast(res.error || '保存失败'); return; }
     closeEdit();
@@ -342,8 +387,13 @@
     toast('已更新');
   }
   function deleteRecord(id) {
+    var rec = S.getRecords().find(function (r) { return r.id === Number(id); });
+    var media = rec ? (rec.media || []) : [];
     var res = S.deleteRecord(id);
     if (!res.ok) return;
+    // 清理不再被任何记录/收藏引用的媒体文件
+    var orphans = media.filter(function (m) { return !S.isMediaUsed(m.id); });
+    if (orphans.length) M.removeMany(orphans);
     if (expandedRow === Number(id)) expandedRow = null;
     refreshCurrentPage();
     renderStats();
@@ -407,11 +457,13 @@
         + '<div class="rec-main"><div class="rec-line1"><span class="rec-mood">' + escapeHtml(f.mood) + '</span>'
           + '<span class="rec-tag ' + f.category + '">' + catLabel(f.category) + '</span></div>'
           + (desc ? '<div class="rec-desc">' + escapeHtml(desc) + '</div>' : '')
-        + '</div>'
+          + '</div>'
+        + mediaHtml(f)
         + '<div class="rec-right"><span class="rec-time">' + escapeHtml(f.date + ' ' + f.time) + '</span>'
           + '<button type="button" class="del" data-fav="' + escapeHtml(String(f.favId)) + '">取消收藏</button></div>'
         + '</div>';
     }).join('');
+    hydrateMedia(list);
   }
 
   // ---- 那年今日 ----
@@ -438,6 +490,138 @@
       }).join('');
       return '<div class="otd-year"><div class="otd-year-head">' + g.year + ' 年的今天</div>' + rows + '</div>';
     }).join('');
+  }
+
+  // ---- 媒体：表单预览 / 选择 / 查看 ----
+  function renderMediaPreview(container, mediaArr, removable, onRemove) {
+    if (!container) return;
+    container.innerHTML = '';
+    if (!mediaArr || !mediaArr.length) { container.hidden = true; return; }
+    container.hidden = false;
+    mediaArr.forEach(function (m) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'media-thumb';
+      btn.setAttribute('data-media', m.id);
+      btn.setAttribute('data-mtype', m.type);
+      if (removable) {
+        var x = document.createElement('span');
+        x.className = 'mt-x'; x.textContent = '✕';
+        x.setAttribute('data-remove', m.id);
+        btn.appendChild(x);
+      }
+      if (m.type === 'video') {
+        var p = document.createElement('span');
+        p.className = 'mt-play'; p.textContent = '▶';
+        btn.appendChild(p);
+      }
+      container.appendChild(btn);
+      M.getUrl(m).then(function (url) {
+        if (!url) return;
+        if (m.type === 'image') {
+          var im = document.createElement('img');
+          im.src = url; im.alt = ''; im.className = 'mt-img';
+          btn.insertBefore(im, btn.firstChild);
+        }
+      }).catch(function () {});
+    });
+  }
+
+  function addMediaFromFile(file, target) {
+    if (!file) return;
+    M.save(file).then(function (ref) {
+      if (target === 'edit') editMedia.push(ref);
+      else pendingMedia.push(ref);
+      renderMediaPreview(el.editMediaPrev, editMedia, true, removeEditMedia);
+      renderMediaPreview(el.recordMediaPrev, pendingMedia, true, removePendingMedia);
+    }).catch(function () {
+      toast('媒体保存失败');
+    });
+  }
+
+  function removePendingMedia(id) {
+    pendingMedia = pendingMedia.filter(function (m) { return m.id !== id; });
+    renderMediaPreview(el.recordMediaPrev, pendingMedia, true, removePendingMedia);
+  }
+  function removeEditMedia(id) {
+    editMedia = editMedia.filter(function (m) { return m.id !== id; });
+    renderMediaPreview(el.editMediaPrev, editMedia, true, removeEditMedia);
+  }
+
+  // 查看弹层：图片大图 / 视频播放
+  function openMediaViewer(ref) {
+    if (!ref || !ref.id) return;
+    var stage = $('mediaStage');
+    if (!stage) return;
+    stage.innerHTML = '';
+    M.getUrl(ref).then(function (url) {
+      if (!url) { toast('无法打开媒体'); return; }
+      if (ref.type === 'video') {
+        var v = document.createElement('video');
+        v.src = url; v.controls = true; v.autoplay = true; v.className = 'media-full';
+        stage.appendChild(v);
+      } else {
+        var im = document.createElement('img');
+        im.src = url; im.alt = ''; im.className = 'media-full';
+        stage.appendChild(im);
+      }
+      if ($('mediaModal')) $('mediaModal').hidden = false;
+    }).catch(function () { toast('无法打开媒体'); });
+  }
+  function closeMedia() { if ($('mediaModal')) $('mediaModal').hidden = true; }
+
+  // 备份导出：把媒体以 base64 内联进 JSON（仅导出瞬间生成，不写进 Preferences）
+  function cleanRec(r) {
+    return {
+      id: r.id, mood: r.mood, emoji: r.emoji, category: r.category,
+      desc: r.desc, datetime: r.datetime, date: r.date, time: r.time,
+      media: (r.media || []).map(function (m) { return { id: m.id, type: m.type, ext: m.ext }; })
+    };
+  }
+  function exportWithMedia() {
+    var obj = {
+      app: 'mood-ledger', version: 1, exportedAt: new Date().toISOString(),
+      state: { records: S.getRecords().map(cleanRec), favorites: S.getFavorites().map(cleanRec) }
+    };
+    var refs = [];
+    obj.state.records.forEach(function (r) { (r.media || []).forEach(function (m) { refs.push(m); }); });
+    obj.state.favorites.forEach(function (f) { (f.media || []).forEach(function (m) { refs.push(m); }); });
+    Promise.all(refs.map(function (m) {
+      return M.getBase64(m).then(function (b64) { if (b64) m.data = b64; return m; });
+    })).then(function () {
+      var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = '情绪账本备份-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      toast('备份已导出（含媒体）');
+    }).catch(function () { toast('导出失败'); });
+  }
+  function importWithMedia(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parsed;
+      try { parsed = JSON.parse(String(reader.result)); } catch (e) { toast('不是有效的 JSON'); return; }
+      var st = parsed.state || parsed;
+      if (!st || !Array.isArray(st.records)) { toast('备份格式不正确'); return; }
+      var allMedia = [];
+      st.records.forEach(function (r) { (r.media || []).forEach(function (m) { allMedia.push(m); }); });
+      (st.favorites || []).forEach(function (f) { (f.media || []).forEach(function (m) { allMedia.push(m); }); });
+      Promise.all(allMedia.map(function (m) {
+        if (!m.data) return Promise.resolve();
+        return M.saveFromBase64(m.data, m.type, m.ext).then(function (ref) {
+          m.id = ref.id; m.type = ref.type; m.ext = ref.ext; delete m.data;
+        });
+      })).then(function () {
+        var res = S.importData(JSON.stringify({ app: 'mood-ledger', version: 1, exportedAt: new Date().toISOString(), state: st }));
+        if (!res.ok) { toast(res.error || '导入失败'); return; }
+        expandedRow = null;
+        renderHistory(); renderStats();
+        toast('已导入 ' + res.count + ' 条记录');
+      }).catch(function () { toast('导入失败（媒体还原出错）'); });
+    };
+    reader.readAsText(file);
   }
 
   // ---- 图片生成 / 预览 / 保存 ----
@@ -638,6 +822,11 @@
     function onRowClick(e) {
       var row = e.target.closest('.rec-row');
       if (!row) return;
+      var mediaBtn = e.target.closest('.media-thumb');
+      if (mediaBtn) {
+        openMediaViewer({ id: mediaBtn.getAttribute('data-media'), type: mediaBtn.getAttribute('data-mtype') });
+        return;
+      }
       var id = Number(row.getAttribute('data-id'));
       var actBtn = e.target.closest('[data-act]');
       if (actBtn) {
@@ -681,6 +870,53 @@
     if ($('exportStatsBtn')) $('exportStatsBtn').addEventListener('click', exportStatsImage);
     if (el.todayCardBtn) el.todayCardBtn.addEventListener('click', generateTodayCard);
 
+    // 记录表单：图片 / 视频选择
+    if ($('addImgBtn')) $('addImgBtn').addEventListener('click', function () { if (el.imgInput) el.imgInput.click(); });
+    if ($('addVidBtn')) $('addVidBtn').addEventListener('click', function () { if (el.vidInput) el.vidInput.click(); });
+    if (el.imgInput) el.imgInput.addEventListener('change', function (e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) addMediaFromFile(f, 'add');
+      e.target.value = '';
+    });
+    if (el.vidInput) el.vidInput.addEventListener('change', function (e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) addMediaFromFile(f, 'add');
+      e.target.value = '';
+    });
+    // 记录表单预览区：点缩略图看大图，点 ✕ 移除
+    if (el.recordMediaPrev) el.recordMediaPrev.addEventListener('click', function (e) {
+      var x = e.target.closest('[data-remove]');
+      if (x) { removePendingMedia(x.getAttribute('data-remove')); return; }
+      var t = e.target.closest('.media-thumb');
+      if (t) openMediaViewer({ id: t.getAttribute('data-media'), type: t.getAttribute('data-mtype') });
+    });
+
+    // 编辑弹层：图片 / 视频选择
+    if ($('editImgBtn')) $('editImgBtn').addEventListener('click', function () { if (el.editImgInput) el.editImgInput.click(); });
+    if ($('editVidBtn')) $('editVidBtn').addEventListener('click', function () { if (el.editVidInput) el.editVidInput.click(); });
+    if (el.editImgInput) el.editImgInput.addEventListener('change', function (e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) addMediaFromFile(f, 'edit');
+      e.target.value = '';
+    });
+    if (el.editVidInput) el.editVidInput.addEventListener('change', function (e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) addMediaFromFile(f, 'edit');
+      e.target.value = '';
+    });
+    if (el.editMediaPrev) el.editMediaPrev.addEventListener('click', function (e) {
+      var x = e.target.closest('[data-remove]');
+      if (x) { removeEditMedia(x.getAttribute('data-remove')); return; }
+      var t = e.target.closest('.media-thumb');
+      if (t) openMediaViewer({ id: t.getAttribute('data-media'), type: t.getAttribute('data-mtype') });
+    });
+
+    // 媒体查看弹层关闭
+    if ($('mediaClose')) $('mediaClose').addEventListener('click', closeMedia);
+    if ($('mediaModal')) $('mediaModal').addEventListener('click', function (e) {
+      if (e.target === $('mediaModal')) closeMedia();
+    });
+
     // 删除确认弹窗
     if ($('confirmCancel')) $('confirmCancel').addEventListener('click', closeConfirm);
     if ($('confirmOk')) $('confirmOk').addEventListener('click', doDelete);
@@ -695,30 +931,13 @@
       if (e.target === el.imgModal) closeImg();
     });
 
-    // 备份
-    if ($('exportBtn')) $('exportBtn').addEventListener('click', function () {
-      var data = S.exportData();
-      var blob = new Blob([data], { type: 'application/json' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = '情绪账本备份-' + new Date().toISOString().slice(0,10) + '.json';
-      a.click();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-      toast('备份已导出');
-    });
+    // 备份（含媒体：导出时把媒体以 base64 内联进 JSON，不写进 Preferences）
+    if ($('exportBtn')) $('exportBtn').addEventListener('click', exportWithMedia);
     if ($('importBtn')) $('importBtn').addEventListener('click', function () { el.importInput.click(); });
     if (el.importInput) el.importInput.addEventListener('change', function (e) {
       var file = e.target.files && e.target.files[0];
       if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function () {
-        var res = S.importData(String(reader.result));
-        if (!res.ok) { toast(res.error || '导入失败'); return; }
-        expandedRow = null;
-        renderHistory(); renderStats();
-        toast('已导入 ' + res.count + ' 条记录');
-      };
-      reader.readAsText(file);
+      importWithMedia(file);
       e.target.value = '';
     });
 
@@ -765,6 +984,15 @@
       customTime: $('customTime'),
       timeEditBtn: $('timeEditBtn'),
       timeHint: $('timeHint'),
+      imgInput: $('imgInput'),
+      vidInput: $('vidInput'),
+      recordMediaPrev: $('recordMediaPrev'),
+      editImgInput: $('editImgInput'),
+      editVidInput: $('editVidInput'),
+      editMediaPrev: $('editMediaPrev'),
+      mediaModal: $('mediaModal'),
+      mediaStage: $('mediaStage'),
+      mediaClose: $('mediaClose'),
       todayCardBtn: $('todayCardBtn'),
       rangeSeg: $('rangeSeg'),
       rangePicker: $('rangePicker'),

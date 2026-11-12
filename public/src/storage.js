@@ -180,6 +180,15 @@
     return [monday, sunday];
   }
 
+  function sanitizeMedia(arr) {
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(function (m) { return m && m.id && (m.type === 'image' || m.type === 'video'); })
+      .map(function (m) {
+        return { id: String(m.id), type: m.type, ext: String(m.ext || (m.type === 'video' ? 'mp4' : 'jpg')) };
+      });
+  }
+
   function normRecord(r) {
     const info = moodInfo(r && r.mood);
     const dt = formatNowForStored(r);
@@ -192,7 +201,8 @@
       desc: String((r && r.desc) || '').slice(0, 500),
       datetime: dt,
       date: sp.date,
-      time: sp.time
+      time: sp.time,
+      media: sanitizeMedia(r.media)
     };
   }
   function formatNowForStored(r) {
@@ -247,7 +257,8 @@
         emoji: info ? info.emoji : '🙂',
         category: info ? info.category : 'neutral',
         desc: String((input && input.desc) || '').trim().slice(0, 500),
-        datetime: dt
+        datetime: dt,
+        media: (input && input.media) || []
       });
       state.records.push(rec);
       persist();
@@ -265,6 +276,7 @@
         rec.category = info ? info.category : rec.category;
       }
       if (patch && patch.desc !== undefined) rec.desc = String(patch.desc).trim().slice(0, 500);
+      if (patch && patch.media !== undefined) rec.media = sanitizeMedia(patch.media);
       // 时间允许手动改：优先完整日期时间 datetime（YYYY-MM-DD HH:mm），否则仅改时分（日期不变）
       if (patch && validStored(patch.datetime)) {
         rec.datetime = patch.datetime;
@@ -397,6 +409,17 @@
     },
     isFavorited: function (id) {
       return !!(state && state.favorites && state.favorites.some(function (f) { return f.id === Number(id); }));
+    },
+
+    // 某个媒体引用是否还被任意记录或收藏引用（删除记录时用于判断是否能清理文件）
+    isMediaUsed: function (refId) {
+      if (!state || !refId) return false;
+      function hit(list) {
+        return list.some(function (r) {
+          return Array.isArray(r.media) && r.media.some(function (m) { return m.id === refId; });
+        });
+      }
+      return hit(state.records) || hit(state.favorites);
     },
     addFavorite: function (id) {
       if (!state) return { ok: false, error: '存储未初始化' };
