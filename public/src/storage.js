@@ -84,7 +84,7 @@
   const NATIVE = isNativePlatform();
 
   function emptyState() {
-    return { records: [] };
+    return { records: [], favorites: [] };
   }
 
   function readRaw() {
@@ -212,7 +212,12 @@
     init: function () {
       return readRaw().then(function (raw) {
         state = raw && Array.isArray(raw.records)
-          ? { records: raw.records.map(normRecord) }
+          ? {
+              records: raw.records.map(normRecord),
+              favorites: Array.isArray(raw.favorites)
+                ? raw.favorites.map(function (f) { var n = normRecord(f); n.favId = f.favId || ('f' + (f.id || 0)); return n; })
+                : []
+            }
           : emptyState();
         seq = state.records.reduce(function (m, r) { return Math.max(m, r.id || 0); }, 0) + 1;
         return state;
@@ -382,6 +387,68 @@
       return '全部';
     },
 
+    // ---- 收藏（拷贝副本，原记录保留）----
+    getFavorites: function () {
+      return (state && state.favorites)
+        ? state.favorites.slice().sort(function (a, b) {
+            return a.datetime < b.datetime ? 1 : (a.datetime > b.datetime ? -1 : 0);
+          })
+        : [];
+    },
+    isFavorited: function (id) {
+      return !!(state && state.favorites && state.favorites.some(function (f) { return f.id === Number(id); }));
+    },
+    addFavorite: function (id) {
+      if (!state) return { ok: false, error: '存储未初始化' };
+      var rec = state.records.find(function (r) { return r.id === Number(id); });
+      if (!rec) return { ok: false, error: '记录不存在' };
+      if (this.isFavorited(id)) return { ok: true, existed: true };
+      var copy = normRecord(rec);
+      copy.favId = 'f' + (seq++);
+      state.favorites.push(copy);
+      persist();
+      return { ok: true };
+    },
+    removeFavorite: function (id) {
+      if (!state || !state.favorites) return { ok: false };
+      var before = state.favorites.length;
+      state.favorites = state.favorites.filter(function (f) { return f.id !== Number(id); });
+      persist();
+      return { ok: true, removed: before - state.favorites.length };
+    },
+
+    // ---- 那年今日（同月同日，往年）----
+    onThisDay: function (md) {
+      var groups = [];
+      (state && state.records ? state.records : []).forEach(function (r) {
+        if (r.date.slice(5) === md) {
+          var y = r.date.slice(0, 4);
+          var g = groups.find(function (x) { return x.year === y; });
+          if (!g) { g = { year: y, items: [] }; groups.push(g); }
+          g.items.push(r);
+        }
+      });
+      groups.sort(function (a, b) { return a.year < b.year ? 1 : -1; });
+      return groups;
+    },
+
+    // ---- 导出 Markdown 日记 ----
+    exportMarkdown: function () {
+      var groups = this.groupByDate();
+      if (!groups.length) return '# 情绪账本日记\n\n（还没有任何记录）\n';
+      var lines = ['# 情绪账本日记', '', '_导出时间：' + new Date().toLocaleString() + '_', ''];
+      groups.forEach(function (g) {
+        lines.push('## ' + g.date);
+        g.items.forEach(function (r) {
+          var line = '- ' + r.time + ' ' + r.emoji + ' **' + r.mood + '**';
+          if (r.desc) line += '：' + r.desc;
+          lines.push(line);
+        });
+        lines.push('');
+      });
+      return lines.join('\n');
+    },
+
     exportData: function () {
       return JSON.stringify({
         app: 'mood-ledger',
@@ -398,7 +465,12 @@
       catch (e) { return { ok: false, error: '不是有效的 JSON' }; }
       const incoming = (parsed && parsed.state) ? parsed.state : parsed;
       if (!incoming || !Array.isArray(incoming.records)) return { ok: false, error: '备份格式不正确' };
-      state = { records: incoming.records.map(normRecord) };
+      state = {
+        records: incoming.records.map(normRecord),
+        favorites: Array.isArray(incoming.favorites)
+          ? incoming.favorites.map(function (f) { var n = normRecord(f); n.favId = f.favId || ('f' + (f.id || 0)); return n; })
+          : []
+      };
       seq = state.records.reduce(function (m, r) { return Math.max(m, r.id || 0); }, 0) + 1;
       persist();
       return { ok: true, count: state.records.length };

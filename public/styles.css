@@ -281,3 +281,43 @@ textarea:focus, .field-select:focus, .field-time:focus { outline: none; border-c
   border-radius: 20px; font-size: 14px; z-index: 80; white-space: nowrap;
 }
 [hidden] { display: none !important; }
+
+/* 视图切换（按日期 / 时间线） */
+.view-seg { display: inline-flex; background: #f4ece0; border-radius: 12px; padding: 3px; margin: 4px 4px 12px; }
+.view-seg button {
+  border: none; background: transparent; color: var(--ink-soft);
+  border-radius: 9px; padding: 6px 14px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.view-seg button.active { background: #fff; color: var(--brand-deep); font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+
+/* 时间线 */
+.tl-date-sep { font-size: 13px; color: var(--ink-soft); padding: 8px 6px 6px; font-weight: 700; }
+.tl-item { display: flex; gap: 10px; align-items: stretch; padding: 0; border: none; cursor: default; }
+.tl-rail { width: 16px; flex: none; display: flex; justify-content: center; position: relative; }
+.tl-rail::before { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: var(--line); transform: translateX(-50%); }
+.tl-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--brand); margin-top: 18px; z-index: 1; border: 2px solid #fff; box-sizing: border-box; }
+.tl-col { flex: 1; min-width: 0; }
+.tl-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px 14px; margin-bottom: 12px; }
+.tl-card-head { display: flex; align-items: center; gap: 8px; }
+.tl-time { color: var(--ink-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tl-emoji { font-size: 20px; line-height: 1; }
+.tl-item .rec-ops { margin-left: auto; }
+.tl-item .rec-detail { padding-left: 0; }
+
+/* 收藏星标按钮 */
+.rec-ops .star { border: none; background: #f4ece0; color: #c9a26c; border-radius: 8px; padding: 4px 9px; font-size: 13px; cursor: pointer; }
+.rec-ops .star.on { color: #e0a93f; background: #fbeccd; }
+
+/* 我的收藏列表 */
+.fav-count { color: var(--brand-deep); }
+.fav-row { cursor: default; }
+.fav-row .rec-time { font-size: 12px; }
+
+/* 那年今日 */
+.otd-year { margin-bottom: 12px; }
+.otd-year-head { font-size: 14px; font-weight: 700; color: var(--ink); padding: 4px 2px 8px; }
+.otd-row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.otd-row:last-child { border-bottom: none; }
+.otd-time { color: var(--ink-soft); font-size: 12px; font-variant-numeric: tabular-nums; width: 40px; flex: none; }
+.otd-emoji { width: 30px; height: 30px; border-radius: 50%; background: #f7efe1; font-size: 16px; display: flex; align-items: center; justify-content: center; flex: none; }
+.otd-desc { color: var(--ink-soft); font-size: 13px; margin-left: auto; max-width: 50%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

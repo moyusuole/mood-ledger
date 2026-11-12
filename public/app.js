@@ -12,6 +12,7 @@
   var expandedRow = null;       // 当前展开完整描述的记录 id
   var currentDetailMood = '';   // 明细页对应的情绪
   var customTimeMode = false;   // 是否启用了自选时间
+  var historyView = 'group';    // 记录页视图：group=按日期 / timeline=时间线
   var pendingDeleteId = null;   // 待删除记录 id（确认弹窗用）
   var statRange = { type: 'month', value: '' }; // 统计时间范围
   var imgCanvas = null;         // 当前预览图片 canvas（保存用）
@@ -64,6 +65,77 @@
   }
 
   // ---- 记录页 ----
+  // ---- 记录行通用片段 ----
+  function recOpsHtml(r) {
+    var fav = S.isFavorited(r.id);
+    return '<div class="rec-ops">'
+      + '<button type="button" class="star' + (fav ? ' on' : '') + '" data-act="star" data-id="' + r.id + '" title="收藏">' + (fav ? '★' : '☆') + '</button>'
+      + '<button type="button" class="edit" data-act="edit" data-id="' + r.id + '">改</button>'
+      + '<button type="button" class="del" data-act="del" data-id="' + r.id + '">删</button>'
+      + '</div>';
+  }
+  function recMainHtml(r) {
+    var desc = r.desc || '';
+    var summary = desc.length > 20 ? desc.slice(0, 20) + '…' : desc;
+    return '<div class="rec-main">'
+      + '<div class="rec-line1"><span class="rec-mood">' + escapeHtml(r.mood) + '</span>'
+        + '<span class="rec-tag ' + r.category + '">' + catLabel(r.category) + '</span></div>'
+      + (summary ? '<div class="rec-desc">' + escapeHtml(summary) + '</div>' : '')
+      + '</div>';
+  }
+  function detailHtmlOf(r) {
+    var desc = r.desc || '';
+    var isOpen = expandedRow === r.id;
+    return isOpen
+      ? '<div class="rec-detail"><div class="rec-detail-inner">' + (desc ? escapeHtml(desc) : '（当时没有写下具体的事）') + '</div></div>'
+      : '';
+  }
+  function renderGroupHtml(groups) {
+    return groups.map(function (g) {
+      var rows = g.items.map(function (r) {
+        return '<div class="rec-row" data-id="' + r.id + '">'
+          + '<div class="rec-emoji">' + r.emoji + '</div>'
+          + recMainHtml(r)
+          + '<div class="rec-right"><span class="rec-time">' + escapeHtml(r.time) + '</span>' + recOpsHtml(r) + '</div>'
+          + '</div>' + detailHtmlOf(r);
+      }).join('');
+      return '<div class="date-group">'
+        + '<div class="date-head"><span>' + escapeHtml(g.date) + '</span><span class="day-sum">' + g.items.length + ' 条</span></div>'
+        + '<div class="date-card">' + rows + '</div></div>';
+    }).join('');
+  }
+  function renderTimelineHtml(records) {
+    var html = '', prevDate = null;
+    records.forEach(function (r) {
+      if (r.date !== prevDate) { html += '<div class="tl-date-sep">' + escapeHtml(r.date) + '</div>'; prevDate = r.date; }
+      var desc = r.desc || '';
+      html += '<div class="rec-row tl-item" data-id="' + r.id + '">'
+        + '<div class="tl-rail"><span class="tl-dot"></span></div>'
+        + '<div class="tl-col">'
+          + '<div class="tl-card">'
+            + '<div class="tl-card-head"><span class="tl-time">' + escapeHtml(r.time) + '</span>'
+              + '<span class="tl-emoji">' + r.emoji + '</span>'
+              + '<span class="rec-mood">' + escapeHtml(r.mood) + '</span>'
+              + '<span class="rec-tag ' + r.category + '">' + catLabel(r.category) + '</span>'
+              + recOpsHtml(r)
+            + '</div>'
+            + (desc ? '<div class="rec-desc">' + escapeHtml(desc.length > 40 ? desc.slice(0, 40) + '…' : desc) + '</div>' : '')
+          + '</div>'
+          + detailHtmlOf(r)
+        + '</div>'
+        + '</div>';
+    });
+    return html;
+  }
+
+  function setHistoryView(mode) {
+    historyView = (mode === 'timeline') ? 'timeline' : 'group';
+    if (el.viewSeg) el.viewSeg.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-view') === historyView);
+    });
+    renderHistory();
+  }
+
   function renderHistory() {
     var groups = S.groupByDate();
     var total = S.getRecords().length;
@@ -72,40 +144,13 @@
 
     var list = $('historyList');
     if (!list) return;
-    if (!groups.length) {
+    if (!total) {
       list.innerHTML = '';
       if ($('historyEmpty')) $('historyEmpty').hidden = false;
       return;
     }
     if ($('historyEmpty')) $('historyEmpty').hidden = true;
-
-    list.innerHTML = groups.map(function (g) {
-      var rows = g.items.map(function (r) {
-        var desc = r.desc || '';
-        var summary = desc.length > 20 ? desc.slice(0, 20) + '…' : desc;
-        var cat = catLabel(r.category);
-        var isOpen = expandedRow === r.id;
-        var detailHtml = isOpen
-          ? '<div class="rec-detail"><div class="rec-detail-inner">' + (desc ? escapeHtml(desc) : '（当时没有写下具体的事）') + '</div></div>'
-          : '';
-        return '<div class="rec-row" data-id="' + r.id + '">'
-          + '<div class="rec-emoji">' + r.emoji + '</div>'
-          + '<div class="rec-main">'
-            + '<div class="rec-line1"><span class="rec-mood">' + escapeHtml(r.mood) + '</span>'
-              + '<span class="rec-tag ' + r.category + '">' + cat + '</span></div>'
-            + (summary ? '<div class="rec-desc">' + escapeHtml(summary) + '</div>' : '')
-          + '</div>'
-          + '<div class="rec-right"><span class="rec-time">' + escapeHtml(r.time) + '</span>'
-            + '<div class="rec-ops">'
-              + '<button type="button" class="edit" data-act="edit" data-id="' + r.id + '">改</button>'
-              + '<button type="button" class="del" data-act="del" data-id="' + r.id + '">删</button>'
-            + '</div></div>'
-          + '</div>' + detailHtml;
-      }).join('');
-      return '<div class="date-group">'
-        + '<div class="date-head"><span>' + escapeHtml(g.date) + '</span><span class="day-sum">' + g.items.length + ' 条</span></div>'
-        + '<div class="date-card">' + rows + '</div></div>';
-    }).join('');
+    list.innerHTML = (historyView === 'timeline') ? renderTimelineHtml(S.getRecords()) : renderGroupHtml(groups);
   }
 
   function saveRecord() {
@@ -305,6 +350,22 @@
     toast('已删除');
   }
 
+  // ---- 收藏（拷贝副本，原记录保留）----
+  function toggleFavorite(id) {
+    if (S.isFavorited(id)) {
+      S.removeFavorite(id);
+      refreshCurrentPage();
+      renderFavorites();
+      toast('已取消收藏');
+    } else {
+      var res = S.addFavorite(id);
+      if (!res.ok) { toast(res.error || '收藏失败'); return; }
+      refreshCurrentPage();
+      renderFavorites();
+      toast('已收藏 ★');
+    }
+  }
+
   // ---- 删除确认（硬删，不进回收站）----
   function confirmDelete(id) {
     pendingDeleteId = Number(id);
@@ -325,6 +386,58 @@
   function refreshCurrentPage() {
     renderHistory();
     if (currentDetailMood) renderDetail();
+  }
+
+  // ---- 我的收藏 ----
+  function renderFavorites() {
+    var favs = S.getFavorites();
+    if ($('favCount')) $('favCount').textContent = favs.length;
+    var list = $('favList');
+    if (!list) return;
+    if (!favs.length) {
+      list.innerHTML = '';
+      if ($('favEmpty')) $('favEmpty').hidden = false;
+      return;
+    }
+    if ($('favEmpty')) $('favEmpty').hidden = true;
+    list.innerHTML = favs.map(function (f) {
+      var desc = f.desc ? (f.desc.length > 30 ? f.desc.slice(0, 30) + '…' : f.desc) : '';
+      return '<div class="rec-row fav-row" data-fav="' + escapeHtml(String(f.favId)) + '">'
+        + '<div class="rec-emoji">' + f.emoji + '</div>'
+        + '<div class="rec-main"><div class="rec-line1"><span class="rec-mood">' + escapeHtml(f.mood) + '</span>'
+          + '<span class="rec-tag ' + f.category + '">' + catLabel(f.category) + '</span></div>'
+          + (desc ? '<div class="rec-desc">' + escapeHtml(desc) + '</div>' : '')
+        + '</div>'
+        + '<div class="rec-right"><span class="rec-time">' + escapeHtml(f.date + ' ' + f.time) + '</span>'
+          + '<button type="button" class="del" data-fav="' + escapeHtml(String(f.favId)) + '">取消收藏</button></div>'
+        + '</div>';
+    }).join('');
+  }
+
+  // ---- 那年今日 ----
+  function renderOnThisDay() {
+    var md = S.formatNow().slice(5, 10); // MM-DD
+    var groups = S.onThisDay(md);
+    var list = $('onThisDayList');
+    if (!list) return;
+    if (!groups.length) {
+      list.innerHTML = '';
+      if ($('onThisDayEmpty')) $('onThisDayEmpty').hidden = false;
+      return;
+    }
+    if ($('onThisDayEmpty')) $('onThisDayEmpty').hidden = true;
+    list.innerHTML = groups.map(function (g) {
+      var rows = g.items.map(function (r) {
+        var desc = r.desc ? (r.desc.length > 20 ? r.desc.slice(0, 20) + '…' : r.desc) : '';
+        return '<div class="otd-row">'
+          + '<span class="otd-time">' + escapeHtml(r.time) + '</span>'
+          + '<span class="rec-emoji otd-emoji">' + r.emoji + '</span>'
+          + '<span class="rec-mood">' + escapeHtml(r.mood) + '</span>'
+          + (desc ? '<span class="otd-desc">' + escapeHtml(desc) + '</span>' : '')
+          + '</div>';
+      }).join('');
+      return '<div class="otd-year"><div class="otd-year-head">' + g.year + ' 年的今天</div>' + rows + '</div>';
+    }).join('');
   }
 
   // ---- 图片生成 / 预览 / 保存 ----
@@ -490,6 +603,7 @@
     });
     if (name === 'stats') renderStats();
     if (name === 'record') renderHistory();
+    if (name === 'mine') { renderOnThisDay(); renderFavorites(); }
     window.scrollTo(0, 0);
   }
 
@@ -530,6 +644,7 @@
         var act = actBtn.getAttribute('data-act');
         if (act === 'edit') openEdit(id);
         else if (act === 'del') confirmDelete(id);
+        else if (act === 'star') toggleFavorite(id);
         return;
       }
       expandedRow = (expandedRow === id) ? null : id;
@@ -606,6 +721,34 @@
       reader.readAsText(file);
       e.target.value = '';
     });
+
+    // 记录视图切换：按日期 / 时间线
+    if (el.viewSeg) el.viewSeg.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-view]');
+      if (b) setHistoryView(b.getAttribute('data-view'));
+    });
+
+    // 我的收藏：取消收藏
+    var favList = $('favList');
+    if (favList) favList.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-fav]');
+      if (!btn) return;
+      var fid = btn.getAttribute('data-fav');
+      var fav = S.getFavorites().find(function (f) { return String(f.favId) === String(fid); });
+      if (fav) { S.removeFavorite(fav.id); toast('已取消收藏'); renderFavorites(); refreshCurrentPage(); }
+    });
+
+    // 导出 Markdown 日记
+    if ($('exportMdBtn')) $('exportMdBtn').addEventListener('click', function () {
+      var md = S.exportMarkdown();
+      var blob = new Blob([md], { type: 'text/markdown' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = '情绪账本日记-' + S.formatNow().slice(0, 10) + '.md';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      toast('Markdown 已导出');
+    });
   }
 
   function init() {
@@ -629,7 +772,14 @@
       confirmModal: $('confirmModal'),
       imgModal: $('imgModal'),
       imgPreview: $('imgPreview'),
-      importInput: $('importInput')
+      importInput: $('importInput'),
+      viewSeg: $('viewSeg'),
+      favList: $('favList'),
+      favCount: $('favCount'),
+      favEmpty: $('favEmpty'),
+      onThisDayList: $('onThisDayList'),
+      onThisDayEmpty: $('onThisDayEmpty'),
+      exportMdBtn: $('exportMdBtn')
     };
     buildMoodPicker();
     bindEvents();
