@@ -12,6 +12,10 @@
   var expandedRow = null;       // 当前展开完整描述的记录 id
   var currentDetailMood = '';   // 明细页对应的情绪
   var customTimeMode = false;   // 是否启用了自选时间
+  var pendingDeleteId = null;   // 待删除记录 id（确认弹窗用）
+  var statRange = { type: 'month', value: '' }; // 统计时间范围
+  var imgCanvas = null;         // 当前预览图片 canvas（保存用）
+  var imgName = 'mood.png';
   var toastTimer = null;
 
   function $(id) { return document.getElementById(id); }
@@ -161,9 +165,12 @@
 
   // ---- 统计页 ----
   function renderStats() {
-    var stats = S.statsByMood();
-    var total = S.getRecords().length;
+    if (!statRange.value) statRange.value = defaultRangeValue(statRange.type);
+    var recs = S.filterByRange(statRange.type, statRange.value);
+    var stats = S.statsByMood(recs);
+    var total = recs.length;
     if ($('statsTotal')) $('statsTotal').textContent = '共 ' + total + ' 条';
+    if ($('statsRangeLabel')) $('statsRangeLabel').textContent = S.rangeLabel(statRange.type, statRange.value) + ' · 占比';
     var list = $('statsList');
     if (!list) return;
     if (!stats.length) {
@@ -183,6 +190,42 @@
           + '<div class="bar-track"><div class="bar-fill" style="width:' + s.pct + '%;background:' + color + '"></div></div>'
         + '</div><span class="stat-arrow">›</span></div>';
     }).join('');
+  }
+
+  function defaultRangeValue(type) {
+    var now = new Date();
+    if (type === 'day') return S.formatNow().slice(0, 10);
+    if (type === 'week') return S.isoWeek(now);
+    if (type === 'month') return S.formatNow().slice(0, 7);
+    return S.formatNow().slice(0, 4);
+  }
+
+  function setRangeType(type) {
+    statRange.type = type;
+    var seg = el.rangeSeg;
+    if (seg) seg.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-range') === type);
+    });
+    if (type === 'year') {
+      if (el.rangePicker) el.rangePicker.hidden = true;
+      if (el.rangeYear) {
+        var y = new Date().getFullYear();
+        var opts = '';
+        for (var k = y; k >= y - 6; k--) opts += '<option value="' + k + '">' + k + '</option>';
+        el.rangeYear.innerHTML = opts;
+        el.rangeYear.hidden = false;
+        statRange.value = String(y);
+      }
+    } else {
+      if (el.rangeYear) el.rangeYear.hidden = true;
+      if (el.rangePicker) {
+        el.rangePicker.hidden = false;
+        el.rangePicker.type = (type === 'day') ? 'date' : (type === 'week') ? 'week' : 'month';
+        el.rangePicker.value = defaultRangeValue(type);
+        statRange.value = el.rangePicker.value;
+      }
+    }
+    renderStats();
   }
 
   // ---- 明细页 ----
@@ -262,9 +305,177 @@
     toast('已删除');
   }
 
+  // ---- 删除确认（硬删，不进回收站）----
+  function confirmDelete(id) {
+    pendingDeleteId = Number(id);
+    if (el.confirmModal) el.confirmModal.hidden = false;
+  }
+  function closeConfirm() {
+    pendingDeleteId = null;
+    if (el.confirmModal) el.confirmModal.hidden = true;
+  }
+  function doDelete() {
+    if (!pendingDeleteId) return;
+    var id = pendingDeleteId;
+    pendingDeleteId = null;
+    if (el.confirmModal) el.confirmModal.hidden = true;
+    deleteRecord(id);
+  }
+
   function refreshCurrentPage() {
     renderHistory();
     if (currentDetailMood) renderDetail();
+  }
+
+  // ---- 图片生成 / 预览 / 保存 ----
+  function closeImg() { if (el.imgModal) el.imgModal.hidden = true; imgCanvas = null; }
+
+  function saveImage() {
+    if (!imgCanvas) return;
+    var C = root.Capacitor;
+    var Fs = C && C.Plugins && C.Plugins.Filesystem;
+    if (Fs) {
+      try {
+        var b64 = imgCanvas.toDataURL('image/png').split(',')[1];
+        Fs.writeFile({ path: imgName, directory: 'DOCUMENTS', data: b64 })
+          .then(function () { toast('已保存到 Documents/' + imgName); })
+          .catch(function () { fallbackDownload(); });
+        return;
+      } catch (e) { /* fall through */ }
+    }
+    fallbackDownload();
+  }
+  function fallbackDownload() {
+    if (!imgCanvas) return;
+    imgCanvas.toBlob(function (blob) {
+      if (!blob) { toast('生成失败'); return; }
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = imgName; a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      toast('已开始下载');
+    }, 'image/png');
+  }
+
+  function showImageModal(canvas, title, filename) {
+    imgCanvas = canvas;
+    imgName = filename || 'mood.png';
+    if ($('imgModalTitle')) $('imgModalTitle').textContent = title || '心情卡片';
+    if (el.imgPreview) el.imgPreview.src = canvas.toDataURL('image/png');
+    if (el.imgModal) el.imgModal.hidden = false;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function wrapText(ctx, text, x, y, maxW, lh) {
+    var chars = String(text).split('');
+    var line = '', yy = y;
+    for (var i = 0; i < chars.length; i++) {
+      var test = line + chars[i];
+      if (ctx.measureText(test).width > maxW && line) { ctx.fillText(line, x, yy); line = chars[i]; yy += lh; }
+      else line = test;
+    }
+    if (line) ctx.fillText(line, x, yy);
+  }
+  function wrapTextCenter(ctx, text, cx, y, maxW, lh) {
+    var chars = String(text).split('');
+    var line = '', lines = [];
+    for (var i = 0; i < chars.length; i++) {
+      var test = line + chars[i];
+      if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = chars[i]; }
+      else line = test;
+    }
+    if (line) lines.push(line);
+    var startY = y - (lines.length - 1) * lh / 2;
+    lines.forEach(function (ln, idx) { ctx.fillText(ln, cx, startY + idx * lh); });
+  }
+  function lighten(hex, amt) {
+    var c = String(hex).replace('#', '');
+    var r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+    r = Math.round(r + (255 - r) * amt); g = Math.round(g + (255 - g) * amt); b = Math.round(b + (255 - b) * amt);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  // 统计页导出图片（日/周/月/年）
+  function exportStatsImage() {
+    if (!statRange.value) statRange.value = defaultRangeValue(statRange.type);
+    var recs = S.filterByRange(statRange.type, statRange.value);
+    var stats = S.statsByMood(recs);
+    var label = S.rangeLabel(statRange.type, statRange.value);
+    var sum = S.summary(recs, label);
+    var w = 1080, rowH = 120, pad = 64, headerH = 230, footerH = 170;
+    var h = headerH + Math.max(stats.length, 1) * rowH + footerH;
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    var g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#fbf7f0'); g.addColorStop(1, '#f3ebdd');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#4a4038'; ctx.font = '700 52px sans-serif';
+    ctx.fillText('情绪分布', pad, 56);
+    ctx.fillStyle = '#8d8072'; ctx.font = '400 30px sans-serif';
+    ctx.fillText(label, pad, 124);
+    ctx.fillStyle = '#b07f3f'; ctx.font = '700 30px sans-serif';
+    ctx.fillText('共 ' + recs.length + ' 条', pad, 170);
+    var colorMap = { positive: '#c98a3c', neutral: '#9b8b76', negative: '#a4634f' };
+    var y = headerH;
+    if (!stats.length) {
+      ctx.fillStyle = '#8d8072'; ctx.font = '400 34px sans-serif';
+      ctx.fillText('该时间段还没有记录', pad, y + 30);
+    }
+    stats.forEach(function (s) {
+      var color = colorMap[s.category] || '#c9a26c';
+      ctx.fillStyle = '#4a4038'; ctx.font = '400 44px sans-serif'; ctx.textBaseline = 'middle';
+      ctx.fillText(s.emoji + '  ' + s.mood, pad, y + rowH / 2);
+      var barX = 440, barW = 400, barY = y + rowH / 2 - 10;
+      ctx.fillStyle = '#ece1cf'; roundRect(ctx, barX, barY, barW, 20, 10); ctx.fill();
+      ctx.fillStyle = color; roundRect(ctx, barX, barY, Math.max(barW * s.pct / 100, 6), 20, 10); ctx.fill();
+      ctx.fillStyle = '#4a4038'; ctx.font = '700 32px sans-serif'; ctx.textAlign = 'right';
+      ctx.fillText(s.count + ' 次 · ' + s.pct + '%', w - pad, y + rowH / 2);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      y += rowH;
+    });
+    var fy = h - footerH + 44;
+    ctx.fillStyle = '#b07f3f'; ctx.fillRect(pad, fy, 8, 60);
+    ctx.fillStyle = '#4a4038'; ctx.font = '400 32px sans-serif';
+    wrapText(ctx, sum.text, pad + 28, fy, w - pad - (pad + 28), 44);
+    showImageModal(canvas, '情绪分布 · ' + label, '情绪统计-' + label + '.png');
+  }
+
+  // 记录页：生成今日心情卡
+  function generateTodayCard() {
+    var recs = S.todayRecords();
+    if (!recs.length) { toast('今天还没记录，先去记一笔吧'); return; }
+    var sum = S.summary(recs, '今天');
+    var canvas = document.createElement('canvas');
+    var w = 1080, h = 1500;
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    var base = sum.color || '#c9a26c';
+    var g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, lighten(base, 0.55)); g.addColorStop(1, lighten(base, 0.80));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    var today = S.formatNow().slice(0, 10);
+    ctx.fillStyle = 'rgba(74,64,56,.65)'; ctx.font = '400 34px sans-serif'; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+    ctx.fillText(today, 80, 90);
+    ctx.font = '200px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(sum.topEmoji, w / 2, 220);
+    ctx.fillStyle = '#4a4038'; ctx.font = '800 76px sans-serif';
+    ctx.fillText(sum.topMood, w / 2, 520);
+    ctx.fillStyle = 'rgba(74,64,56,.82)'; ctx.font = '400 38px sans-serif'; ctx.textAlign = 'center';
+    wrapTextCenter(ctx, sum.text, w / 2, 660, w - 200, 56);
+    ctx.fillStyle = 'rgba(74,64,56,.5)'; ctx.font = '400 30px sans-serif';
+    ctx.fillText('情绪账本 · 今日心情卡', w / 2, h - 130);
+    ctx.textAlign = 'left';
+    showImageModal(canvas, '今日心情卡', '今日心情卡-' + today + '.png');
   }
 
   // ---- 页面切换 ----
@@ -318,7 +529,7 @@
       if (actBtn) {
         var act = actBtn.getAttribute('data-act');
         if (act === 'edit') openEdit(id);
-        else if (act === 'del') deleteRecord(id);
+        else if (act === 'del') confirmDelete(id);
         return;
       }
       expandedRow = (expandedRow === id) ? null : id;
@@ -339,6 +550,34 @@
     if ($('editSave')) $('editSave').addEventListener('click', saveEdit);
     if (el.editModal) el.editModal.addEventListener('click', function (e) {
       if (e.target === el.editModal) closeEdit();
+    });
+
+    // 统计时间范围切换
+    if (el.rangeSeg) el.rangeSeg.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-range]');
+      if (b) setRangeType(b.getAttribute('data-range'));
+    });
+    if (el.rangePicker) el.rangePicker.addEventListener('change', function () {
+      statRange.value = el.rangePicker.value; renderStats();
+    });
+    if (el.rangeYear) el.rangeYear.addEventListener('change', function () {
+      statRange.value = el.rangeYear.value; renderStats();
+    });
+    if ($('exportStatsBtn')) $('exportStatsBtn').addEventListener('click', exportStatsImage);
+    if (el.todayCardBtn) el.todayCardBtn.addEventListener('click', generateTodayCard);
+
+    // 删除确认弹窗
+    if ($('confirmCancel')) $('confirmCancel').addEventListener('click', closeConfirm);
+    if ($('confirmOk')) $('confirmOk').addEventListener('click', doDelete);
+    if (el.confirmModal) el.confirmModal.addEventListener('click', function (e) {
+      if (e.target === el.confirmModal) closeConfirm();
+    });
+
+    // 图片预览弹窗
+    if ($('imgClose')) $('imgClose').addEventListener('click', closeImg);
+    if ($('imgSave')) $('imgSave').addEventListener('click', saveImage);
+    if (el.imgModal) el.imgModal.addEventListener('click', function (e) {
+      if (e.target === el.imgModal) closeImg();
     });
 
     // 备份
@@ -383,13 +622,20 @@
       customTime: $('customTime'),
       timeEditBtn: $('timeEditBtn'),
       timeHint: $('timeHint'),
+      todayCardBtn: $('todayCardBtn'),
+      rangeSeg: $('rangeSeg'),
+      rangePicker: $('rangePicker'),
+      rangeYear: $('rangeYear'),
+      confirmModal: $('confirmModal'),
+      imgModal: $('imgModal'),
+      imgPreview: $('imgPreview'),
       importInput: $('importInput')
     };
     buildMoodPicker();
     bindEvents();
     return S.init().then(function () {
       renderHistory();
-      renderStats();
+      setRangeType('month');
     });
   }
 

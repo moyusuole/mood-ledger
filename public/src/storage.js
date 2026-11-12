@@ -156,6 +156,30 @@
     return MOODS.find(function (m) { return m.name === name; }) || null;
   }
 
+  // ---- 时间范围辅助 ----
+  function fmtDate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function isoWeek(date) {
+    const d = new Date(date.getTime());
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+    const week1 = new Date(d.getFullYear(), 0, 4);
+    const week = 1 + Math.round(((d - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+    return d.getFullYear() + '-W' + (week < 10 ? '0' + week : '' + week);
+  }
+  // 'YYYY-Www' -> [周一 00:00:00, 周日 23:59:59]
+  function weekDates(value) {
+    const m = String(value).match(/^(\d{4})-W(\d{1,2})$/);
+    if (!m) return [new Date(0), new Date(0)];
+    const year = +m[1], week = +m[2];
+    const jan4 = new Date(year, 0, 4);
+    const jan4Day = (jan4.getDay() + 6) % 7;
+    const monday = new Date(year, 0, 4 - jan4Day + (week - 1) * 7, 0, 0, 0, 0);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    return [monday, sunday];
+  }
+
   function normRecord(r) {
     const info = moodInfo(r && r.mood);
     const dt = formatNowForStored(r);
@@ -269,13 +293,14 @@
       return groups;
     },
 
-    // 按情绪聚合统计（数量 + 占比），按数量降序
-    statsByMood: function () {
+    // 按情绪聚合统计（数量 + 占比），按数量降序；可传 records 做范围统计
+    statsByMood: function (records) {
+      const list = records || (state && state.records) || [];
       const counts = {};
-      const total = state && state.records ? state.records.length : 0;
-      (state && state.records ? state.records : []).forEach(function (r) {
+      list.forEach(function (r) {
         counts[r.mood] = (counts[r.mood] || 0) + 1;
       });
+      const total = list.length;
       return Object.keys(counts).map(function (name) {
         const info = moodInfo(name);
         const cnt = counts[name];
@@ -298,6 +323,63 @@
         g.items.push(r);
       });
       return groups;
+    },
+
+    // ---- 时间范围 ----
+    isoWeek: function (date) {
+      return isoWeek(date instanceof Date ? date : new Date());
+    },
+    // 按 日/周/月/年 过滤记录
+    filterByRange: function (type, value) {
+      const all = this.getRecords();
+      if (!type || !value) return all;
+      return all.filter(function (r) {
+        const day = r.datetime.slice(0, 10);
+        if (type === 'day') return day === value;
+        if (type === 'month') return day.slice(0, 7) === value;
+        if (type === 'year') return day.slice(0, 4) === value;
+        if (type === 'week') {
+          const wd = weekDates(value);
+          const rd = new Date(day + 'T00:00:00');
+          return rd >= wd[0] && rd <= wd[1];
+        }
+        return true;
+      });
+    },
+    todayRecords: function () {
+      return this.filterByRange('day', formatNow().slice(0, 10));
+    },
+    // 生成一句小结 + 主导情绪信息
+    summary: function (records, rangeLabelText) {
+      const list = records || [];
+      const colorMap = { positive: '#c98a3c', neutral: '#9b8b76', negative: '#a4634f' };
+      if (!list.length) {
+        return { has: false, text: (rangeLabelText ? rangeLabelText + ' ' : '') + '还没有记录', color: '#c9a26c' };
+      }
+      const cat = { positive: 0, neutral: 0, negative: 0 };
+      list.forEach(function (r) { cat[r.category] = (cat[r.category] || 0) + 1; });
+      const total = list.length;
+      const dom = (cat.positive >= cat.negative && cat.positive >= cat.neutral) ? 'positive'
+        : (cat.negative >= cat.positive && cat.negative >= cat.neutral) ? 'negative' : 'neutral';
+      const counts = {};
+      list.forEach(function (r) { counts[r.mood] = (counts[r.mood] || 0) + 1; });
+      let topMood = null, topCnt = 0;
+      Object.keys(counts).forEach(function (m) { if (counts[m] > topCnt) { topCnt = counts[m]; topMood = m; } });
+      const info = moodInfo(topMood);
+      const word = { positive: '整体偏向积极', neutral: '整体比较平稳', negative: '整体略显低落' };
+      const text = '共 ' + total + ' 条，' + word[dom] + '，最常出现的是「' + topMood + '」';
+      return {
+        has: true, text: text, dominant: dom, color: colorMap[dom],
+        topMood: topMood, topEmoji: info ? info.emoji : '🙂',
+        counts: cat, total: total
+      };
+    },
+    rangeLabel: function (type, value) {
+      if (type === 'day') return value;
+      if (type === 'week') { const w = weekDates(value); return fmtDate(w[0]) + ' ~ ' + fmtDate(w[1]); }
+      if (type === 'month') return value;
+      if (type === 'year') return value + ' 年';
+      return '全部';
     },
 
     exportData: function () {

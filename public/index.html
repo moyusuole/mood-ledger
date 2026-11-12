@@ -44,6 +44,7 @@
         </div>
         <input type="datetime-local" id="customTime" class="field-time" hidden />
         <div class="record-actions">
+          <button class="btn-ghost" id="todayCardBtn" type="button">今日卡</button>
           <button class="btn-primary" id="saveMoodBtn" type="button">记下来 ✎</button>
         </div>
       </section>
@@ -66,12 +67,23 @@
         <div class="topbar-sub">点一行看这类心情的具体记录</div>
       </header>
       <section class="card stats-card">
+        <div class="range-bar">
+          <div class="seg" id="rangeSeg">
+            <button type="button" data-range="day">日</button>
+            <button type="button" data-range="week">周</button>
+            <button type="button" data-range="month" class="active">月</button>
+            <button type="button" data-range="year">年</button>
+          </div>
+          <input type="month" id="rangePicker" class="range-picker" />
+          <select id="rangeYear" class="range-picker" hidden></select>
+        </div>
         <div class="card-head">
-          <span class="card-title">全部情绪 · 占比</span>
+          <span class="card-title" id="statsRangeLabel">本月 · 占比</span>
           <span class="stats-total" id="statsTotal">共 0 条</span>
         </div>
         <div id="statsList"></div>
-        <div class="empty" id="statsEmpty" hidden>还没有数据可统计</div>
+        <div class="empty" id="statsEmpty" hidden>该时间段还没有数据</div>
+        <button class="btn-export" id="exportStatsBtn" type="button">导出图片</button>
       </section>
     </section>
 
@@ -145,6 +157,31 @@
   </div>
 
   <div class="toast" id="toast" hidden></div>
+
+  <!-- 删除确认弹窗 -->
+  <div class="modal" id="confirmModal" hidden>
+    <div class="modal-box confirm-box">
+      <div class="modal-title">删除这条记录？</div>
+      <p class="confirm-tip">删除后无法恢复（不会进回收站）。</p>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="confirmCancel" type="button">取消</button>
+        <button class="btn-danger" id="confirmOk" type="button">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图片预览弹窗（今日卡 / 统计导出） -->
+  <div class="modal" id="imgModal" hidden>
+    <div class="modal-box img-modal">
+      <div class="modal-title" id="imgModalTitle">心情卡片</div>
+      <div class="img-preview-wrap"><img id="imgPreview" alt="预览" /></div>
+      <p class="img-tip">长按图片可保存到相册；或点下方按钮下载</p>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="imgClose" type="button">关闭</button>
+        <button class="btn-primary" id="imgSave" type="button">保存图片</button>
+      </div>
+    </div>
+  </div>
 
   <script src="src/storage.js"></script>
   <script src="app.js"></script>

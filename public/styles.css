@@ -177,6 +177,24 @@ textarea:focus, .field-select:focus, .field-time:focus { outline: none; border-c
 
 /* 统计 */
 .stats-total { color: var(--ink-soft); font-size: 13px; }
+.range-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.seg { display: inline-flex; background: #f4ece0; border-radius: 12px; padding: 3px; }
+.seg button {
+  border: none; background: transparent; color: var(--ink-soft);
+  border-radius: 9px; padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.seg button.active { background: #fff; color: var(--brand-deep); font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.range-picker {
+  border: 1.5px solid var(--line); border-radius: 10px; padding: 7px 10px;
+  font-size: 13px; color: var(--ink); background: #fdfaf5; font-family: inherit;
+}
+.range-picker:focus { outline: none; border-color: var(--brand); }
+.btn-export {
+  margin-top: 16px; width: 100%; background: #f4ece0; color: var(--brand-deep);
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-size: 14px;
+  font-weight: 700; cursor: pointer; font-family: inherit;
+}
+.btn-export:active { transform: scale(.98); }
 .stat-row {
   display: flex; align-items: center; gap: 12px; padding: 12px 2px;
   border-bottom: 1px solid var(--line); cursor: pointer;
@@ -242,6 +260,19 @@ textarea:focus, .field-select:focus, .field-time:focus { outline: none; border-c
 .field-label { display: block; font-size: 13px; color: var(--ink-soft); margin: 12px 0 6px; }
 .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
 .modal-actions button { flex: 1; }
+.confirm-tip { color: var(--ink-soft); font-size: 14px; margin: 0 0 4px; }
+.btn-danger {
+  background: #b5735a; color: #fff; border: none; border-radius: 12px;
+  padding: 11px 20px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
+}
+.btn-danger:active { transform: scale(.97); }
+.img-modal { max-width: 420px; }
+.img-preview-wrap {
+  max-height: 56vh; overflow: auto; border-radius: 14px; background: #faf5ec;
+  display: flex; justify-content: center;
+}
+.img-preview-wrap img { max-width: 100%; height: auto; display: block; }
+.img-tip { color: var(--ink-soft); font-size: 12px; text-align: center; margin: 12px 0 0; }
 
 /* toast */
 .toast {
