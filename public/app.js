@@ -89,11 +89,19 @@
   function mediaHtml(r) {
     if (!r.media || !r.media.length) return '';
     var items = r.media.map(function (m) {
-      return '<button type="button" class="media-thumb" data-media="' + escapeHtml(m.id) + '" data-mtype="' + escapeHtml(m.type) + '">'
+      return '<button type="button" class="media-thumb" data-media="' + escapeHtml(m.id) + '" data-mtype="' + escapeHtml(m.type) + '" data-ext="' + escapeHtml(m.ext || '') + '">'
         + (m.type === 'video' ? '<span class="mt-play">▶</span>' : '<span class="mt-ph"></span>')
         + '</button>';
     }).join('');
     return '<div class="rec-media">' + items + '</div>';
+  }
+  // 从 DOM 缩略图还原媒体引用（id/type/ext 三者缺一不可，否则拼不出文件路径）
+  function refFromEl(elm) {
+    return {
+      id: elm.getAttribute('data-media'),
+      type: elm.getAttribute('data-mtype'),
+      ext: elm.getAttribute('data-ext') || ''
+    };
   }
   function detailHtmlOf(r) {
     var desc = r.desc || '';
@@ -173,7 +181,7 @@
     if (!scope || !M) return;
     scope.querySelectorAll('.media-thumb').forEach(function (btn) {
       if (btn.dataset.done) return;
-      var ref = { id: btn.getAttribute('data-media'), type: btn.getAttribute('data-mtype') };
+      var ref = refFromEl(btn);
       M.getUrl(ref).then(function (url) {
         if (!url) return;
         btn.dataset.done = '1';
@@ -504,6 +512,7 @@
       btn.className = 'media-thumb';
       btn.setAttribute('data-media', m.id);
       btn.setAttribute('data-mtype', m.type);
+      btn.setAttribute('data-ext', m.ext || '');
       if (removable) {
         var x = document.createElement('span');
         x.className = 'mt-x'; x.textContent = '✕';
@@ -527,15 +536,22 @@
     });
   }
 
+  var MAX_VIDEO_BYTES = 200 * 1024 * 1024; // 视频上限 200MB，防止 base64 撑爆内存导致卡死/ANR
   function addMediaFromFile(file, target) {
     if (!file) return;
+    var isVideo = /^video\//.test(file.type) || /\.(mp4|mov|webm|m4v|3gp)$/i.test(file.name || '');
+    if (isVideo && file.size > MAX_VIDEO_BYTES) {
+      toast('视频太大（超过 200MB），请先裁短一点再添加');
+      return;
+    }
+    toast(isVideo ? '正在保存视频，大文件需要等一会儿…' : '正在保存图片…');
     M.save(file).then(function (ref) {
       if (target === 'edit') editMedia.push(ref);
       else pendingMedia.push(ref);
       renderMediaPreview(el.editMediaPrev, editMedia, true, removeEditMedia);
       renderMediaPreview(el.recordMediaPrev, pendingMedia, true, removePendingMedia);
-    }).catch(function () {
-      toast('媒体保存失败');
+    }).catch(function (e) {
+      toast('媒体保存失败：' + (e && e.message ? e.message : '未知错误'));
     });
   }
 
@@ -558,7 +574,9 @@
       if (!url) { toast('无法打开媒体'); return; }
       if (ref.type === 'video') {
         var v = document.createElement('video');
-        v.src = url; v.controls = true; v.autoplay = true; v.className = 'media-full';
+        v.src = url; v.controls = true; v.autoplay = true; v.playsInline = true;
+        v.setAttribute('playsinline', ''); v.setAttribute('x5-video-player-type', 'h5');
+        v.className = 'media-full';
         stage.appendChild(v);
       } else {
         var im = document.createElement('img');
@@ -824,7 +842,7 @@
       if (!row) return;
       var mediaBtn = e.target.closest('.media-thumb');
       if (mediaBtn) {
-        openMediaViewer({ id: mediaBtn.getAttribute('data-media'), type: mediaBtn.getAttribute('data-mtype') });
+        openMediaViewer(refFromEl(mediaBtn));
         return;
       }
       var id = Number(row.getAttribute('data-id'));
@@ -888,7 +906,7 @@
       var x = e.target.closest('[data-remove]');
       if (x) { removePendingMedia(x.getAttribute('data-remove')); return; }
       var t = e.target.closest('.media-thumb');
-      if (t) openMediaViewer({ id: t.getAttribute('data-media'), type: t.getAttribute('data-mtype') });
+      if (t) openMediaViewer(refFromEl(t));
     });
 
     // 编辑弹层：图片 / 视频选择
@@ -908,7 +926,7 @@
       var x = e.target.closest('[data-remove]');
       if (x) { removeEditMedia(x.getAttribute('data-remove')); return; }
       var t = e.target.closest('.media-thumb');
-      if (t) openMediaViewer({ id: t.getAttribute('data-media'), type: t.getAttribute('data-mtype') });
+      if (t) openMediaViewer(refFromEl(t));
     });
 
     // 媒体查看弹层关闭

@@ -65,6 +65,7 @@
     { name: '憋屈',   emoji: '😤',  category: 'negative' },
     { name: '迷茫',   emoji: '😵‍💫', category: 'negative' },
     { name: '别扭',   emoji: '😒',  category: 'negative' },
+    { name: '不情愿', emoji: '🙅',  category: 'negative' },
     { name: '不舍',   emoji: '💔',  category: 'negative' }
   ];
 
