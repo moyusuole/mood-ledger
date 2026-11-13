@@ -221,6 +221,19 @@
     </div>
   </div>
 
+  <!-- 导出兜底弹层（手机无法直接下载时，复制文本保存） -->
+  <div class="modal" id="textModal" hidden>
+    <div class="modal-box">
+      <div class="modal-title" id="textModalTitle">导出内容</div>
+      <p class="backup-tip">手机系统不支持直接下载文件。点「复制文本」，然后粘贴到备忘录 / 微信「文件传输助手」保存即可。</p>
+      <textarea id="textModalBody" readonly class="export-textarea"></textarea>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="textClose" type="button">关闭</button>
+        <button class="btn-primary" id="textCopy" type="button">复制文本</button>
+      </div>
+    </div>
+  </div>
+
   <script src="src/storage.js"></script>
   <script src="src/media.js"></script>
   <script src="app.js"></script>

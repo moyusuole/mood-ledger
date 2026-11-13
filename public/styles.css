@@ -361,3 +361,10 @@ textarea:focus, .field-select:focus, .field-time:focus { outline: none; border-c
 .media-stage { display: flex; align-items: center; justify-content: center; padding: 0; }
 .media-full { max-width: 100%; max-height: 86vh; display: block; border-radius: 4px; }
 
+/* 导出兜底弹层：复制文本 */
+.export-textarea {
+  width: 100%; height: 220px; box-sizing: border-box; margin-top: 10px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+  font-size: 12px; line-height: 1.5; resize: none; background: #fbf6ee; color: var(--ink);
+}
+

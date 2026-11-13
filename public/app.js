@@ -517,6 +517,11 @@
         var x = document.createElement('span');
         x.className = 'mt-x'; x.textContent = '✕';
         x.setAttribute('data-remove', m.id);
+        // 直接绑定点击，stopPropagation 防止被遮罩或按钮冒泡吞掉，保证 ✕ 一定可点
+        x.addEventListener('click', function (ev) {
+          ev.stopPropagation(); ev.preventDefault();
+          onRemove(m.id);
+        });
         btn.appendChild(x);
       }
       if (m.type === 'video') {
@@ -608,32 +613,50 @@
     var native = C && C.isNativePlatform && C.isNativePlatform();
     var Fs = native && C.Plugins.Filesystem;
     var Share = native && C.Plugins.Share;
-    if (Fs) {
-      // 文件名用 ASCII，部分分享目标对中文名不友好；标题保留中文
-      var safeName = filename.replace(/[^\x20-\x7e]/g, function (c) {
-        return ({ '情绪账本': 'mood', '备份': 'backup', '日记': 'diary', '·': '-', '－': '-' })[c] || '-';
+    if (!Fs) { blobDownload(filename, mime, text); return Promise.resolve(); }
+    // 文件名用 ASCII，部分分享目标对中文名不友好；标题保留中文
+    var safeName = filename.replace(/[^\x20-\x7e]/g, function (c) {
+      return ({ '情绪账本': 'mood', '备份': 'backup', '日记': 'diary', '·': '-', '－': '-' })[c] || '-';
+    });
+    // 第 1 级：写 Cache + 系统分享面板
+    return Fs.writeFile({ path: safeName, data: b64OfText(text), directory: 'CACHE', recursive: true })
+      .then(function () { return Fs.getUri({ path: safeName, directory: 'CACHE' }); })
+      .then(function (r) {
+        if (Share && Share.share) return Share.share({ title: shareTitle, files: [r.uri] });
+        throw new Error('no-share');
+      })
+      .then(function () { toast('已弹出分享面板，选「保存到文件」或微信即可'); })
+      .catch(function (e) {
+        var msg = String((e && e.message) || e || '');
+        if (/cancel/i.test(msg)) return; // 用户取消了分享，不算错误
+        // 第 2 级：分享不可用/被拒 → 写到公共 Documents（文件管理里可见）
+        return Fs.writeFile({ path: filename, data: b64OfText(text), directory: 'DOCUMENTS', recursive: true })
+          .then(function () { toast('已保存到：文件管理 › Documents › ' + filename); })
+          .catch(function () {
+            // 第 3 级：连 Documents 都写不了（如严格作用域存储）→ 弹窗让用户复制文本，100% 可用
+            showExportText(filename, text);
+          });
       });
-      return Fs.writeFile({ path: safeName, data: b64OfText(text), directory: 'CACHE', recursive: true })
-        .then(function () { return Fs.getUri({ path: safeName, directory: 'CACHE' }); })
-        .then(function (r) {
-          if (Share && Share.share) {
-            return Share.share({ title: shareTitle, files: [r.uri], dialogTitle: '导出' });
-          }
-          // 分享插件不在（旧包）：退一步写到公共 Documents 目录
-          return Fs.writeFile({ path: filename, data: b64OfText(text), directory: 'DOCUMENTS', recursive: true })
-            .then(function () { toast('已保存到 Documents/' + filename); });
-        })
-        .then(function () {
-          toast('已导出，在分享面板里选「保存到文件」即可');
-        })
-        .catch(function (e) {
-          var msg = String((e && e.message) || e || '');
-          if (/cancel/i.test(msg)) return; // 用户取消了分享，不算错误
-          blobDownload(filename, mime, text);
-        });
+  }
+
+  // 导出兜底：手机无法直接下载时，弹窗展示内容并提供复制
+  function showExportText(name, text) {
+    var m = $('textModal'); if (!m) return;
+    if ($('textModalTitle')) $('textModalTitle').textContent = '已生成：' + name;
+    if ($('textModalBody')) $('textModalBody').value = text;
+    m.hidden = false;
+    toast('已生成内容，点「复制文本」保存');
+  }
+  function copyExportText() {
+    var t = $('textModalBody'); if (!t) return;
+    t.focus(); t.select();
+    var done = function () { toast('已复制，去粘贴保存'); };
+    try { if (document.execCommand('copy')) { done(); return; } } catch (e) {}
+    if (root.navigator && root.navigator.clipboard && root.navigator.clipboard.writeText) {
+      root.navigator.clipboard.writeText(t.value).then(done, function () { toast('复制失败，请手动长按选择'); });
+    } else {
+      toast('请手动长按文本框选择并复制');
     }
-    blobDownload(filename, mime, text);
-    return Promise.resolve();
   }
 
   // 备份导出：把媒体以 base64 内联进 JSON（仅导出瞬间生成，不写进 Preferences）
@@ -982,6 +1005,11 @@
     if ($('mediaModal')) $('mediaModal').addEventListener('click', function (e) {
       if (e.target === $('mediaModal')) closeMedia();
     });
+
+    // 导出兜底弹层：复制文本
+    if ($('textCopy')) $('textCopy').addEventListener('click', copyExportText);
+    if ($('textClose')) $('textClose').addEventListener('click', function () { if ($('textModal')) $('textModal').hidden = true; });
+    if ($('textModal')) $('textModal').addEventListener('click', function (e) { if (e.target === $('textModal')) $('textModal').hidden = true; });
 
     // 删除确认弹窗
     if ($('confirmCancel')) $('confirmCancel').addEventListener('click', closeConfirm);
