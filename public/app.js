@@ -588,6 +588,54 @@
   }
   function closeMedia() { if ($('mediaModal')) $('mediaModal').hidden = true; }
 
+  // ---- 文件导出 ----
+  // Android WebView 不支持 <a download> blob 下载（点了没反应），所以：
+  //   原生端 = 先写进 Cache，再调系统分享面板（可「保存到文件」/ 发微信等）
+  //   Web 端 = 回退 blob 下载
+  function b64OfText(text) {
+    return btoa(unescape(encodeURIComponent(text))); // UTF-8 安全的 base64
+  }
+  function blobDownload(filename, mime, text) {
+    var blob = new Blob([text], { type: mime });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    toast('已导出 ' + filename);
+  }
+  function exportFile(filename, shareTitle, mime, text) {
+    var C = root.Capacitor;
+    var native = C && C.isNativePlatform && C.isNativePlatform();
+    var Fs = native && C.Plugins.Filesystem;
+    var Share = native && C.Plugins.Share;
+    if (Fs) {
+      // 文件名用 ASCII，部分分享目标对中文名不友好；标题保留中文
+      var safeName = filename.replace(/[^\x20-\x7e]/g, function (c) {
+        return ({ '情绪账本': 'mood', '备份': 'backup', '日记': 'diary', '·': '-', '－': '-' })[c] || '-';
+      });
+      return Fs.writeFile({ path: safeName, data: b64OfText(text), directory: 'CACHE', recursive: true })
+        .then(function () { return Fs.getUri({ path: safeName, directory: 'CACHE' }); })
+        .then(function (r) {
+          if (Share && Share.share) {
+            return Share.share({ title: shareTitle, files: [r.uri], dialogTitle: '导出' });
+          }
+          // 分享插件不在（旧包）：退一步写到公共 Documents 目录
+          return Fs.writeFile({ path: filename, data: b64OfText(text), directory: 'DOCUMENTS', recursive: true })
+            .then(function () { toast('已保存到 Documents/' + filename); });
+        })
+        .then(function () {
+          toast('已导出，在分享面板里选「保存到文件」即可');
+        })
+        .catch(function (e) {
+          var msg = String((e && e.message) || e || '');
+          if (/cancel/i.test(msg)) return; // 用户取消了分享，不算错误
+          blobDownload(filename, mime, text);
+        });
+    }
+    blobDownload(filename, mime, text);
+    return Promise.resolve();
+  }
+
   // 备份导出：把媒体以 base64 内联进 JSON（仅导出瞬间生成，不写进 Preferences）
   function cleanRec(r) {
     return {
@@ -607,13 +655,13 @@
     Promise.all(refs.map(function (m) {
       return M.getBase64(m).then(function (b64) { if (b64) m.data = b64; return m; });
     })).then(function () {
-      var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = '情绪账本备份-' + new Date().toISOString().slice(0, 10) + '.json';
-      a.click();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-      toast('备份已导出（含媒体）');
+      toast('正在打包备份…');
+      return exportFile(
+        '情绪账本备份-' + new Date().toISOString().slice(0, 10) + '.json',
+        '情绪账本备份',
+        'application/json',
+        JSON.stringify(obj, null, 2)
+      );
     }).catch(function () { toast('导出失败'); });
   }
   function importWithMedia(file) {
@@ -978,13 +1026,12 @@
     // 导出 Markdown 日记
     if ($('exportMdBtn')) $('exportMdBtn').addEventListener('click', function () {
       var md = S.exportMarkdown();
-      var blob = new Blob([md], { type: 'text/markdown' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = '情绪账本日记-' + S.formatNow().slice(0, 10) + '.md';
-      a.click();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-      toast('Markdown 已导出');
+      exportFile(
+        '情绪账本日记-' + S.formatNow().slice(0, 10) + '.md',
+        '情绪账本日记',
+        'text/markdown',
+        md
+      );
     });
   }
 
