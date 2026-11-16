@@ -16,6 +16,11 @@ const S = require('../public/src/storage.js');
   // 长名称必须完整，不能漏字
   assert.strictEqual(S.trackerDef('call').name, '给家里打电话');
   assert.strictEqual(S.trackerDef('message').name, '给家里发信息');
+  // 只有经期是区间类型，其余都是单日（防止区间着色 bug 回归）
+  assert.strictEqual(S.trackerDef('period').kind, 'range');
+  S.TRACKERS.filter(t => t.key !== 'period').forEach(t => {
+    assert.notStrictEqual(t.kind, 'range', t.key + ' 不应是区间类型');
+  });
 
   // 1) 新增单次打卡
   let r = S.addTrackerLog({ key: 'wash', start: '2026-11-16 09:30', note: '洗了头' });

@@ -932,10 +932,17 @@
     // 按类型视角：哪些日期命中当前类型
     var matchDates = {};
     if (trackView === 'type' && selectedType) {
+      var selDef = S.trackerDef(selectedType);
+      var isRange = !!(selDef && selDef.kind === 'range'); // 只有经期是区间类型
       S.logsByKey(selectedType).forEach(function (l) {
         var s = l.start.slice(0, 10);
+        if (!isRange) {
+          // 其余习惯只记一天：只标记开始当天
+          matchDates[s] = true;
+          return;
+        }
+        // 经期：展开区间内每一天（结束留空则着色到今天，防超长上限 4000 天）
         var e = l.end ? l.end.slice(0, 10) : today;
-        // 展开区间内每一天（防超长：最多到本月末）
         var cur = s, guard = 0;
         while (cur && cur <= e && guard++ < 4000) {
           matchDates[cur] = true;
