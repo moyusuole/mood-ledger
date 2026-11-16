@@ -960,25 +960,34 @@
       }
       if (!dayNum) isEmpty = true;
       var ds = dateStr(y, m, dayNum);
-      var keys = S.trackersOnDate(ds);
       var isToday = (ds === today);
-      var hasPeriod = keys.indexOf('period') >= 0;
       var cls = ['cal-cell'];
       if (isEmpty) cls.push('empty');
       if (isOther) cls.push('other');
       if (isToday) cls.push('today');
-      if (ds === selectedDate && trackView === 'date') cls.push('selected');
-      if (hasPeriod) cls.push('has-period');
+      var dayStyle = '';
+      var dots = '';
+
       if (trackView === 'type') {
-        if (matchDates[ds]) cls.push('match');
-        else cls.push('dim');
+        // 按类型视角：只显示当前选中类型的标记，其他类型一律不显示
+        var def = selectedType ? S.trackerDef(selectedType) : null;
+        if (matchDates[ds] && def) {
+          // 命中日期用该类型的颜色实心圈（经期即粉色圈，与图一一致）
+          dayStyle = ' style="background:' + def.color + ';color:#fff;font-weight:800;border-color:' + def.color + '"';
+        }
+      } else {
+        // 按日期视角：显示当天所有类型（经期整圈粉色 + 其余彩色小点）
+        if (ds === selectedDate) cls.push('selected');
+        var keys = S.trackersOnDate(ds);
+        if (keys.indexOf('period') >= 0) cls.push('has-period');
+        dots = keys.map(function (k) {
+          var d = S.trackerDef(k);
+          return d ? '<span class="cal-dot" style="background:' + d.color + '" title="' + escapeHtml(d.name) + '"></span>' : '';
+        }).join('');
       }
-      var dots = keys.map(function (k) {
-        var def = S.trackerDef(k);
-        return def ? '<span class="cal-dot" style="background:' + def.color + '" title="' + escapeHtml(def.name) + '"></span>' : '';
-      }).join('');
+
       cells.push('<div class="' + cls.join(' ') + '" data-date="' + ds + '">'
-        + '<div class="cal-day">' + (isEmpty ? '' : dayNum) + '</div>'
+        + '<div class="cal-day"' + dayStyle + '>' + (isEmpty ? '' : dayNum) + '</div>'
         + '<div class="cal-dots">' + dots + '</div></div>');
     }
     grid.innerHTML = cells.join('');

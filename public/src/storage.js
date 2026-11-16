@@ -78,17 +78,17 @@
   // ---- 日常打卡项（经期 + 生活习惯）----
   // kind:'range' 表示有开始/结束时间、按区间着色（经期）；其余按单日记录着色。
   const TRACKERS = [
-    { key: 'period',   name: '经期',       emoji: '🌸', color: '#e8648c', kind: 'range' },
-    { key: 'wash',     name: '洗头',       emoji: '🚿', color: '#5aa6e0' },
-    { key: 'exercise', name: '运动',       emoji: '🏃', color: '#6bbf72' },
-    { key: 's',        name: 's',          emoji: '🔤', color: '#a89987' },
-    { key: 'water',    name: '喝水',       emoji: '💧', color: '#4aa3d8' },
-    { key: 'poop',     name: '排便',       emoji: '🌾', color: '#b08d5a' },
-    { key: 'pee',      name: '排尿',       emoji: '🚽', color: '#d4b04a' },
-    { key: 'drink',    name: '饮料',       emoji: '🥤', color: '#c47fae' },
-    { key: 'call',     name: '给家里打电话', emoji: '📞', color: '#8f83d8' },
-    { key: 'message',  name: '给家里发信息', emoji: '💬', color: '#d9905f' },
-    { key: 'talk',     name: '必要沟通',     emoji: '🗣️', color: '#4a9d9c' }
+    { key: 'period',   name: '经期',       emoji: '🌸', color: '#e8648c', kind: 'range' }, // 玫红
+    { key: 'wash',     name: '洗头',       emoji: '🚿', color: '#3f7fd1' }, // 深蓝
+    { key: 'exercise', name: '运动',       emoji: '🏃', color: '#4caf50' }, // 绿
+    { key: 's',        name: 's',          emoji: '🔤', color: '#6d4c9f' }, // 紫
+    { key: 'water',    name: '喝水',       emoji: '💧', color: '#00acc1' }, // 青
+    { key: 'poop',     name: '排便',       emoji: '🌾', color: '#a1662e' }, // 棕橙
+    { key: 'pee',      name: '排尿',       emoji: '🚽', color: '#e0b400' }, // 金黄
+    { key: 'drink',    name: '饮料',       emoji: '🥤', color: '#d2588f' }, // 粉玫
+    { key: 'call',     name: '给家里打电话', emoji: '📞', color: '#2e8b8b' }, // 青绿
+    { key: 'message',  name: '给家里发信息', emoji: '💬', color: '#e2723b' }, // 橙红
+    { key: 'talk',     name: '必要沟通',     emoji: '🗣️', color: '#7a8b3f' }  // 橄榄绿
   ];
 
   function isNativePlatform() {
