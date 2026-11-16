@@ -368,3 +368,101 @@ textarea:focus, .field-select:focus, .field-time:focus { outline: none; border-c
   font-size: 12px; line-height: 1.5; resize: none; background: #fbf6ee; color: var(--ink);
 }
 
+/* ===== 日常打卡（日历）===== */
+.track-view-seg { display: flex; margin: 0 0 14px; }
+.track-view-seg button { flex: 1; }
+.track-add-inline {
+  border: none; background: #f4ece0; color: var(--brand-deep);
+  border-radius: 10px; padding: 6px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.track-card { padding-top: 16px; }
+
+/* 月份导航 */
+.cal-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.cal-nav-btn {
+  width: 32px; height: 32px; border: none; background: #f4ece0; color: var(--ink);
+  border-radius: 10px; font-size: 22px; line-height: 1; cursor: pointer; flex: none;
+}
+.cal-nav-btn:active { transform: scale(.92); }
+.cal-month { font-size: 17px; font-weight: 800; text-align: center; flex: 1; font-variant-numeric: tabular-nums; }
+.cal-today {
+  border: 1px solid var(--line); background: #fff; color: var(--brand-deep);
+  border-radius: 10px; padding: 5px 10px; font-size: 12px; cursor: pointer; flex: none;
+}
+
+/* 星期表头 */
+.cal-week, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-week span {
+  text-align: center; font-size: 12px; color: var(--ink-soft); padding: 4px 0 8px; font-weight: 700;
+}
+.cal-week .we { color: #c08a72; }
+
+/* 日期格子 */
+.cal-grid { gap: 4px 0; }
+.cal-cell {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  padding: 3px 0 5px; cursor: pointer; min-height: 54px;
+}
+.cal-day {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums;
+  border: 1.5px solid transparent; transition: all .12s;
+}
+.cal-cell.empty { cursor: default; }
+.cal-cell.other .cal-day { color: #cbbdb0; }
+.cal-cell.today .cal-day { border-color: var(--brand); font-weight: 800; }
+.cal-cell.selected .cal-day { background: var(--ink); color: #fff; font-weight: 800; }
+.cal-cell:active .cal-day { transform: scale(.9); }
+/* 有记录的日期：数字下方的小圆点 */
+.cal-dots { display: flex; gap: 2px; justify-content: center; flex-wrap: wrap; max-width: 44px; margin-top: 2px; min-height: 6px; }
+.cal-dot { width: 5px; height: 5px; border-radius: 50%; display: block; }
+/* 经期当天：数字整圈粉色 */
+.cal-cell.has-period:not(.selected) .cal-day { background: #f7bfd1; color: #8a3352; font-weight: 800; }
+.cal-cell.has-period.start-day .cal-day { box-shadow: 0 0 0 2px #e8648c inset; }
+/* 按类型视角：非当前类型的点淡化 */
+.cal-cell.dim .cal-dot { opacity: .18; }
+.cal-cell.match .cal-day { background: #f0e6d5; font-weight: 800; }
+
+/* 图例 */
+.cal-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.cal-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-soft); }
+.cal-legend-item i { width: 8px; height: 8px; border-radius: 50%; display: block; }
+
+/* 类型筛选 chips（按类型视角） */
+.track-filter { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
+.track-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1.5px solid var(--line); background: #fdfaf5; color: var(--ink);
+  border-radius: 20px; padding: 6px 11px; font-size: 12px; cursor: pointer;
+}
+.track-chip i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+.track-chip.active { border-color: var(--brand-deep); background: #f7ead3; font-weight: 700; }
+
+/* 打卡记录列表 */
+.track-log {
+  display: flex; align-items: center; gap: 12px; padding: 12px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.track-log:last-child { border-bottom: none; }
+.track-log-emoji {
+  width: 40px; height: 40px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+}
+.track-log-main { flex: 1; min-width: 0; }
+.track-log-name { font-weight: 700; font-size: 14px; }
+.track-log-meta { color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
+.track-log-note { color: var(--ink); font-size: 13px; margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+.track-log-edit {
+  border: none; background: #f4ece0; color: var(--ink-soft);
+  border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; flex: none;
+}
+
+/* 打卡弹层：类型选择 */
+.track-pick { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 4px; }
+.track-pick .track-chip.selected { border-color: var(--brand-deep); background: #f7ead3; font-weight: 700; box-shadow: 0 0 0 2px rgba(176,127,63,.15); }
+.track-del {
+  width: 100%; margin-top: 14px; border: none; background: #fbeee9; color: #b5735a;
+  border-radius: 10px; padding: 10px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+

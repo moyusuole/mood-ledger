@@ -22,6 +22,14 @@
   var imgName = 'mood.png';
   var toastTimer = null;
 
+  // ---- 日常打卡状态 ----
+  var trackView = 'date';       // 视角：date=按日期 / type=按类型
+  var calYear, calMonth;        // 当前显示的年月（month 0-11）
+  var selectedDate = '';        // 按日期视角选中的日期 YYYY-MM-DD
+  var selectedType = '';        // 按类型视角选中的类型 key
+  var trackEditId = null;       // 正在编辑的打卡记录 id（null=新增）
+  var trackPickKey = 'period';  // 弹层里当前选中的类型
+
   function $(id) { return document.getElementById(id); }
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -670,7 +678,11 @@
   function exportWithMedia() {
     var obj = {
       app: 'mood-ledger', version: 1, exportedAt: new Date().toISOString(),
-      state: { records: S.getRecords().map(cleanRec), favorites: S.getFavorites().map(cleanRec) }
+      state: {
+        records: S.getRecords().map(cleanRec),
+        favorites: S.getFavorites().map(cleanRec),
+        trackerLogs: S.getTrackerLogs()
+      }
     };
     var refs = [];
     obj.state.records.forEach(function (r) { (r.media || []).forEach(function (m) { refs.push(m); }); });
@@ -864,9 +876,240 @@
     showImageModal(canvas, '今日心情卡', '今日心情卡-' + today + '.png');
   }
 
+  // ==================== 日常打卡 ====================
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function dateStr(y, m, d) { return y + '-' + pad2(m + 1) + '-' + pad2(d); }
+  function todayStr() { var d = new Date(); return dateStr(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+  function initTrackState() {
+    var d = new Date();
+    calYear = d.getFullYear(); calMonth = d.getMonth();
+    selectedDate = todayStr();
+    selectedType = '';
+  }
+
+  function setTrackView(view) {
+    trackView = (view === 'type') ? 'type' : 'date';
+    if (el.trackViewSeg) el.trackViewSeg.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-tview') === trackView);
+    });
+    renderTrack();
+  }
+
+  // 渲染整页打卡（日历 + 列表）
+  function renderTrack() {
+    renderTrackFilter();
+    renderCalendar();
+    renderTrackList();
+  }
+
+  // 类型筛选 chips（仅按类型视角显示）
+  function renderTrackFilter() {
+    var box = el.trackFilter;
+    if (!box) return;
+    if (trackView !== 'type') { box.hidden = true; return; }
+    box.hidden = false;
+    if (!selectedType && S.TRACKERS.length) selectedType = S.TRACKERS[0].key;
+    box.innerHTML = S.TRACKERS.map(function (t) {
+      return '<button type="button" class="track-chip' + (t.key === selectedType ? ' active' : '') + '" data-tkey="' + t.key + '">'
+        + '<i style="background:' + t.color + '"></i>' + t.emoji + ' ' + escapeHtml(t.name) + '</button>';
+    }).join('');
+  }
+
+  // 渲染月历
+  function renderCalendar() {
+    var grid = el.calGrid;
+    if (!grid) return;
+    if (el.calMonthLabel) el.calMonthLabel.textContent = calYear + '年' + (calMonth + 1) + '月';
+
+    var first = new Date(calYear, calMonth, 1);
+    // 周一为一周起点：JS getDay() 0=周日 -> 转成 0=周一
+    var startOffset = (first.getDay() + 6) % 7;
+    var daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    var prevDays = new Date(calYear, calMonth, 0).getDate();
+    var today = todayStr();
+
+    // 按类型视角：哪些日期命中当前类型
+    var matchDates = {};
+    if (trackView === 'type' && selectedType) {
+      S.logsByKey(selectedType).forEach(function (l) {
+        var s = l.start.slice(0, 10);
+        var e = l.end ? l.end.slice(0, 10) : today;
+        // 展开区间内每一天（防超长：最多到本月末）
+        var cur = s, guard = 0;
+        while (cur && cur <= e && guard++ < 4000) {
+          matchDates[cur] = true;
+          var dd = new Date(cur + 'T00:00:00'); dd.setDate(dd.getDate() + 1);
+          cur = dateStr(dd.getFullYear(), dd.getMonth(), dd.getDate());
+        }
+      });
+    }
+
+    var cells = [];
+    var total = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+    for (var i = 0; i < total; i++) {
+      var dayNum, y = calYear, m = calMonth, isOther = false, isEmpty = false;
+      if (i < startOffset) {
+        dayNum = prevDays - startOffset + 1 + i; isOther = true; m = calMonth - 1;
+        if (m < 0) { m = 11; y--; }
+      } else if (i >= startOffset + daysInMonth) {
+        dayNum = i - (startOffset + daysInMonth) + 1; isOther = true; m = calMonth + 1;
+        if (m > 11) { m = 0; y++; }
+      } else {
+        dayNum = i - startOffset + 1;
+      }
+      if (!dayNum) isEmpty = true;
+      var ds = dateStr(y, m, dayNum);
+      var keys = S.trackersOnDate(ds);
+      var isToday = (ds === today);
+      var hasPeriod = keys.indexOf('period') >= 0;
+      var cls = ['cal-cell'];
+      if (isEmpty) cls.push('empty');
+      if (isOther) cls.push('other');
+      if (isToday) cls.push('today');
+      if (ds === selectedDate && trackView === 'date') cls.push('selected');
+      if (hasPeriod) cls.push('has-period');
+      if (trackView === 'type') {
+        if (matchDates[ds]) cls.push('match');
+        else cls.push('dim');
+      }
+      var dots = keys.map(function (k) {
+        var def = S.trackerDef(k);
+        return def ? '<span class="cal-dot" style="background:' + def.color + '" title="' + escapeHtml(def.name) + '"></span>' : '';
+      }).join('');
+      cells.push('<div class="' + cls.join(' ') + '" data-date="' + ds + '">'
+        + '<div class="cal-day">' + (isEmpty ? '' : dayNum) + '</div>'
+        + '<div class="cal-dots">' + dots + '</div></div>');
+    }
+    grid.innerHTML = cells.join('');
+
+    // 图例
+    if (el.calLegend) {
+      el.calLegend.innerHTML = S.TRACKERS.map(function (t) {
+        return '<span class="cal-legend-item"><i style="background:' + t.color + '"></i>' + escapeHtml(t.name) + '</span>';
+      }).join('');
+    }
+  }
+
+  // 渲染选中日期 / 类型的记录列表
+  function renderTrackList() {
+    var list = el.trackList;
+    if (!list) return;
+    var logs;
+    if (trackView === 'type') {
+      logs = selectedType ? S.logsByKey(selectedType) : [];
+      var tdef = selectedType ? S.trackerDef(selectedType) : null;
+      if (el.trackListTitle) el.trackListTitle.textContent = tdef ? (tdef.emoji + ' ' + tdef.name + ' · 全部记录') : '全部记录';
+    } else {
+      logs = selectedDate ? S.logsOnDate(selectedDate) : [];
+      if (el.trackListTitle) el.trackListTitle.textContent = (selectedDate ? formatCnDate(selectedDate) : '这一天') + ' 的打卡';
+    }
+    if (!logs.length) {
+      list.innerHTML = '';
+      if (el.trackListEmpty) { el.trackListEmpty.hidden = false; el.trackListEmpty.textContent = trackView === 'type' ? '这个类型还没有记录，点「＋ 记一笔」开始吧' : '这一天还没有记录，点「＋ 记一笔」开始吧'; }
+      return;
+    }
+    if (el.trackListEmpty) el.trackListEmpty.hidden = true;
+    list.innerHTML = logs.map(function (l) {
+      var def = S.trackerDef(l.key) || { emoji: '•', name: l.key, color: '#c9a26c' };
+      var meta = l.start.slice(5);
+      if (l.key === 'period') {
+        meta = '开始 ' + l.start.slice(5) + (l.end ? ' → 结束 ' + l.end.slice(5) : ' · 进行中');
+      }
+      return '<div class="track-log" data-id="' + l.id + '">'
+        + '<div class="track-log-emoji" style="background:' + def.color + '22">' + def.emoji + '</div>'
+        + '<div class="track-log-main">'
+          + '<div class="track-log-name">' + escapeHtml(def.name) + '</div>'
+          + '<div class="track-log-meta">' + escapeHtml(meta) + '</div>'
+          + (l.note ? '<div class="track-log-note">' + escapeHtml(l.note) + '</div>' : '')
+        + '</div>'
+        + '<button type="button" class="track-log-edit" data-edit="' + l.id + '">改</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  function formatCnDate(ds) {
+    var p = ds.split('-');
+    return (+p[1]) + '月' + (+p[2]) + '日';
+  }
+
+  // 打开打卡弹层（新增或编辑）
+  function openTrackModal(logId, presetDate, presetKey) {
+    trackEditId = logId || null;
+    var log = null;
+    if (trackEditId) log = S.getTrackerLogs().find(function (l) { return l.id === trackEditId; });
+    trackPickKey = log ? log.key : (presetKey || (trackView === 'type' && selectedType) || 'period');
+
+    // 类型选择 chips
+    if (el.trackPick) {
+      el.trackPick.innerHTML = S.TRACKERS.map(function (t) {
+        return '<button type="button" class="track-chip' + (t.key === trackPickKey ? ' selected' : '') + '" data-pick="' + t.key + '">'
+          + '<i style="background:' + t.color + '"></i>' + t.emoji + ' ' + escapeHtml(t.name) + '</button>';
+      }).join('');
+    }
+    // 时间预填
+    var startVal = log ? S.toLocalInput(log.start) : null;
+    if (!startVal) {
+      var base = presetDate ? (presetDate + ' ' + pad2(new Date().getHours()) + ':' + pad2(new Date().getMinutes())) : S.formatNow();
+      startVal = S.toLocalInput(base);
+    }
+    if (el.trackStart) el.trackStart.value = startVal;
+    if (el.trackEnd) el.trackEnd.value = log ? S.toLocalInput(log.end) : '';
+    if (el.trackNote) el.trackNote.value = log ? log.note : '';
+    if (el.trackModalTitle) el.trackModalTitle.textContent = log ? '编辑打卡' : '记一笔打卡';
+    if (el.trackDel) el.trackDel.hidden = !log;
+    updateTrackEndWrap();
+    if (el.trackModal) el.trackModal.hidden = false;
+  }
+  function closeTrackModal() { trackEditId = null; if (el.trackModal) el.trackModal.hidden = true; }
+  function updateTrackEndWrap() {
+    var show = trackPickKey === 'period';
+    if (el.trackEndWrap) el.trackEndWrap.hidden = !show;
+    if (el.trackStartLabel) el.trackStartLabel.textContent = show ? '开始时间' : '时间';
+  }
+  function saveTrackLog() {
+    var start = el.trackStart ? S.fromLocalInput(el.trackStart.value) : '';
+    if (!start) { toast('请选择时间'); return; }
+    var end = (trackPickKey === 'period' && el.trackEnd) ? S.fromLocalInput(el.trackEnd.value) : '';
+    var note = el.trackNote ? el.trackNote.value.trim() : '';
+    var res;
+    if (trackEditId) {
+      res = S.updateTrackerLog(trackEditId, { start: start, end: end, note: note });
+    } else {
+      res = S.addTrackerLog({ key: trackPickKey, start: start, end: end, note: note });
+    }
+    if (!res.ok) { toast(res.error || '保存失败'); return; }
+    // 保存后聚焦到这条记录的日期
+    selectedDate = start.slice(0, 10);
+    var d = new Date(start.replace(' ', 'T'));
+    if (!isNaN(d.getTime())) { calYear = d.getFullYear(); calMonth = d.getMonth(); }
+    closeTrackModal();
+    renderTrack();
+    toast(trackEditId ? '已更新打卡' : '已记下打卡 ✓');
+  }
+  function deleteTrackLog() {
+    if (!trackEditId) return;
+    S.deleteTrackerLog(trackEditId);
+    closeTrackModal();
+    renderTrack();
+    toast('已删除打卡');
+  }
+  function shiftMonth(delta) {
+    calMonth += delta;
+    if (calMonth < 0) { calMonth = 11; calYear--; }
+    if (calMonth > 11) { calMonth = 0; calYear++; }
+    renderCalendar();
+  }
+  function goToday() {
+    var d = new Date();
+    calYear = d.getFullYear(); calMonth = d.getMonth();
+    selectedDate = todayStr();
+    renderTrack();
+  }
+
   // ---- 页面切换 ----
   function switchPage(name) {
-    ['record', 'stats', 'detail', 'mine'].forEach(function (p) {
+    ['record', 'stats', 'detail', 'mine', 'track'].forEach(function (p) {
       var node = $('page' + p.charAt(0).toUpperCase() + p.slice(1));
       if (node) node.hidden = (p !== name);
     });
@@ -877,6 +1120,7 @@
     if (name === 'stats') renderStats();
     if (name === 'record') renderHistory();
     if (name === 'mine') { renderOnThisDay(); renderFavorites(); }
+    if (name === 'track') renderTrack();
     window.scrollTo(0, 0);
   }
 
@@ -1061,6 +1305,71 @@
         md
       );
     });
+
+    // 导出打卡记录 Markdown
+    if ($('exportTrackMdBtn')) $('exportTrackMdBtn').addEventListener('click', function () {
+      var md = S.exportTrackerMarkdown();
+      exportFile(
+        '日常打卡-' + S.formatNow().slice(0, 10) + '.md',
+        '日常打卡记录',
+        'text/markdown',
+        md
+      );
+    });
+
+    // ===== 日常打卡事件 =====
+    if (el.trackViewSeg) el.trackViewSeg.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-tview]');
+      if (b) setTrackView(b.getAttribute('data-tview'));
+    });
+    if ($('calPrev')) $('calPrev').addEventListener('click', function () { shiftMonth(-1); });
+    if ($('calNext')) $('calNext').addEventListener('click', function () { shiftMonth(1); });
+    if ($('calToday')) $('calToday').addEventListener('click', goToday);
+    if (el.calGrid) el.calGrid.addEventListener('click', function (e) {
+      var cell = e.target.closest('.cal-cell');
+      if (!cell || cell.classList.contains('empty')) return;
+      var ds = cell.getAttribute('data-date');
+      if (trackView === 'date') {
+        selectedDate = ds;
+        // 点其他月份的日期时，跳到对应月份
+        var p = ds.split('-');
+        if ((+p[0]) !== calYear || ((+p[1]) - 1) !== calMonth) {
+          calYear = +p[0]; calMonth = (+p[1]) - 1;
+        }
+        renderCalendar(); renderTrackList();
+      } else {
+        // 按类型视角：点日期直接新增/编辑当天该类型的记录
+        openTrackModal(null, ds, selectedType);
+      }
+    });
+    if (el.trackFilter) el.trackFilter.addEventListener('click', function (e) {
+      var chip = e.target.closest('[data-tkey]');
+      if (!chip) return;
+      selectedType = chip.getAttribute('data-tkey');
+      renderTrackFilter(); renderCalendar(); renderTrackList();
+    });
+    if ($('trackAddBtn')) $('trackAddBtn').addEventListener('click', function () {
+      openTrackModal(null, trackView === 'date' ? selectedDate : '', trackView === 'type' ? selectedType : '');
+    });
+    if (el.trackList) el.trackList.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-edit]');
+      if (btn) openTrackModal(Number(btn.getAttribute('data-edit')));
+    });
+    // 打卡弹层
+    if (el.trackPick) el.trackPick.addEventListener('click', function (e) {
+      var chip = e.target.closest('[data-pick]');
+      if (!chip) return;
+      trackPickKey = chip.getAttribute('data-pick');
+      el.trackPick.querySelectorAll('.track-chip').forEach(function (c) { c.classList.remove('selected'); });
+      chip.classList.add('selected');
+      updateTrackEndWrap();
+    });
+    if ($('trackSave')) $('trackSave').addEventListener('click', saveTrackLog);
+    if ($('trackCancel')) $('trackCancel').addEventListener('click', closeTrackModal);
+    if ($('trackDel')) $('trackDel').addEventListener('click', deleteTrackLog);
+    if (el.trackModal) el.trackModal.addEventListener('click', function (e) {
+      if (e.target === el.trackModal) closeTrackModal();
+    });
   }
 
   function init() {
@@ -1100,10 +1409,28 @@
       favEmpty: $('favEmpty'),
       onThisDayList: $('onThisDayList'),
       onThisDayEmpty: $('onThisDayEmpty'),
-      exportMdBtn: $('exportMdBtn')
+      exportMdBtn: $('exportMdBtn'),
+      trackViewSeg: $('trackViewSeg'),
+      trackFilter: $('trackFilter'),
+      calGrid: $('calGrid'),
+      calMonthLabel: $('calMonthLabel'),
+      calLegend: $('calLegend'),
+      trackList: $('trackList'),
+      trackListEmpty: $('trackListEmpty'),
+      trackListTitle: $('trackListTitle'),
+      trackModal: $('trackModal'),
+      trackModalTitle: $('trackModalTitle'),
+      trackPick: $('trackPick'),
+      trackStart: $('trackStart'),
+      trackStartLabel: $('trackStartLabel'),
+      trackEnd: $('trackEnd'),
+      trackEndWrap: $('trackEndWrap'),
+      trackNote: $('trackNote'),
+      trackDel: $('trackDel')
     };
     buildMoodPicker();
     bindEvents();
+    initTrackState();
     return S.init().then(function () {
       renderHistory();
       setRangeType('month');

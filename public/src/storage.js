@@ -75,6 +75,22 @@
     { key: 'negative', label: '消极', color: '#a4634f' }
   ];
 
+  // ---- 日常打卡项（经期 + 生活习惯）----
+  // kind:'range' 表示有开始/结束时间、按区间着色（经期）；其余按单日记录着色。
+  const TRACKERS = [
+    { key: 'period',   name: '经期',       emoji: '🌸', color: '#e8648c', kind: 'range' },
+    { key: 'wash',     name: '洗头',       emoji: '🚿', color: '#5aa6e0' },
+    { key: 'exercise', name: '运动',       emoji: '🏃', color: '#6bbf72' },
+    { key: 's',        name: 's',          emoji: '🔤', color: '#a89987' },
+    { key: 'water',    name: '喝水',       emoji: '💧', color: '#4aa3d8' },
+    { key: 'poop',     name: '排便',       emoji: '🌾', color: '#b08d5a' },
+    { key: 'pee',      name: '排尿',       emoji: '🚽', color: '#d4b04a' },
+    { key: 'drink',    name: '饮料',       emoji: '🥤', color: '#c47fae' },
+    { key: 'call',     name: '给家里打电话', emoji: '📞', color: '#8f83d8' },
+    { key: 'message',  name: '给家里发信息', emoji: '💬', color: '#d9905f' },
+    { key: 'talk',     name: '必要沟通',     emoji: '🗣️', color: '#4a9d9c' }
+  ];
+
   function isNativePlatform() {
     const C = root.Capacitor;
     if (!C) return false;
@@ -85,7 +101,7 @@
   const NATIVE = isNativePlatform();
 
   function emptyState() {
-    return { records: [], favorites: [] };
+    return { records: [], favorites: [], trackerLogs: [] };
   }
 
   function readRaw() {
@@ -110,6 +126,7 @@
 
   let state = null;
   let seq = 1;
+  let tseq = 1;
   let pendingSave = null;
 
   function persist() {
@@ -212,6 +229,44 @@
     return formatNow();
   }
 
+  // ---- 日常打卡记录 ----
+  // 结构：{ id, key, start:'YYYY-MM-DD HH:mm', end:'YYYY-MM-DD HH:mm'(可空), note }
+  // 经期(key=period)用 start~end 区间；结束为空表示"进行中"，着色到今天。
+  function trackerDef(key) {
+    return TRACKERS.find(function (t) { return t.key === key; }) || null;
+  }
+  function validDT(dt) {
+    return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(dt || '');
+  }
+  function normTrackerLog(l) {
+    const key = String((l && l.key) || '');
+    if (!trackerDef(key)) return null;
+    const start = validDT(l.start) ? l.start : formatNow();
+    let end = validDT(l.end) ? l.end : '';
+    // 结束早于开始时视为无效，清空（进行中）
+    if (end && end < start) end = '';
+    return {
+      id: Number(l.id) || 0,
+      key: key,
+      start: start,
+      end: end,
+      note: String((l && l.note) || '').slice(0, 200)
+    };
+  }
+  function dtDate(dt) { return String(dt || '').slice(0, 10); }
+  // 某条打卡是否落在指定日期 YYYY-MM-DD
+  function trackerOnDate(l, date) {
+    if (!l || !date) return false;
+    const def = trackerDef(l.key);
+    if (!def) return false;
+    if (def.kind === 'range') {
+      const s = dtDate(l.start);
+      const e = l.end ? dtDate(l.end) : formatNow().slice(0, 10); // 进行中着色到今天
+      return date >= s && date <= e;
+    }
+    return dtDate(l.start) === date;
+  }
+
   const Storage = {
     MOODS: MOODS,
     CATEGORIES: CATEGORIES,
@@ -227,10 +282,14 @@
               records: raw.records.map(normRecord),
               favorites: Array.isArray(raw.favorites)
                 ? raw.favorites.map(function (f) { var n = normRecord(f); n.favId = f.favId || ('f' + (f.id || 0)); return n; })
+                : [],
+              trackerLogs: Array.isArray(raw.trackerLogs)
+                ? raw.trackerLogs.map(normTrackerLog).filter(Boolean)
                 : []
             }
           : emptyState();
         seq = state.records.reduce(function (m, r) { return Math.max(m, r.id || 0); }, 0) + 1;
+        tseq = state.trackerLogs.reduce(function (m, l) { return Math.max(m, l.id || 0); }, 0) + 1;
         return state;
       });
     },
@@ -456,6 +515,62 @@
       return groups;
     },
 
+    // ---- 日常打卡 ----
+    TRACKERS: TRACKERS,
+    trackerDef: trackerDef,
+    getTrackerLogs: function () { return (state && state.trackerLogs) ? state.trackerLogs.slice() : []; },
+    addTrackerLog: function (input) {
+      if (!state) return { ok: false, error: '存储未初始化' };
+      const key = String((input && input.key) || '');
+      if (!trackerDef(key)) return { ok: false, error: '未知的打卡类型' };
+      const log = normTrackerLog({
+        id: tseq++, key: key,
+        start: (input && validDT(input.start)) ? input.start : formatNow(),
+        end: (input && input.end) || '',
+        note: (input && input.note) || ''
+      });
+      if (!state.trackerLogs) state.trackerLogs = [];
+      state.trackerLogs.push(log);
+      persist();
+      return { ok: true, log: log };
+    },
+    updateTrackerLog: function (id, patch) {
+      if (!state || !state.trackerLogs) return { ok: false, error: '存储未初始化' };
+      const log = state.trackerLogs.find(function (l) { return l.id === Number(id); });
+      if (!log) return { ok: false, error: '记录不存在' };
+      if (patch && validDT(patch.start)) log.start = patch.start;
+      if (patch && patch.end !== undefined) log.end = validDT(patch.end) ? patch.end : '';
+      if (log.end && log.end < log.start) log.end = '';
+      if (patch && patch.note !== undefined) log.note = String(patch.note).slice(0, 200);
+      persist();
+      return { ok: true, log: log };
+    },
+    deleteTrackerLog: function (id) {
+      if (!state || !state.trackerLogs) return { ok: false };
+      const before = state.trackerLogs.length;
+      state.trackerLogs = state.trackerLogs.filter(function (l) { return l.id !== Number(id); });
+      persist();
+      return { ok: true, deleted: before - state.trackerLogs.length };
+    },
+    // 指定日期有记录的类型 key 列表（按 TRACKERS 顺序）
+    trackersOnDate: function (date) {
+      const logs = (state && state.trackerLogs) ? state.trackerLogs : [];
+      return TRACKERS.filter(function (t) {
+        return logs.some(function (l) { return l.key === t.key && trackerOnDate(l, date); });
+      }).map(function (t) { return t.key; });
+    },
+    // 某类型的所有记录（倒序）；某日期+类型的记录
+    logsByKey: function (key) {
+      const logs = (state && state.trackerLogs) ? state.trackerLogs : [];
+      return logs.filter(function (l) { return l.key === key; })
+        .slice().sort(function (a, b) { return a.start < b.start ? 1 : (a.start > b.start ? -1 : b.id - a.id); });
+    },
+    logsOnDate: function (date) {
+      const logs = (state && state.trackerLogs) ? state.trackerLogs : [];
+      return logs.filter(function (l) { return trackerOnDate(l, date); })
+        .slice().sort(function (a, b) { return a.start < b.start ? 1 : (a.start > b.start ? -1 : b.id - a.id); });
+    },
+
     // ---- 导出 Markdown 日记 ----
     exportMarkdown: function () {
       var groups = this.groupByDate();
@@ -481,6 +596,30 @@
         state: JSON.parse(JSON.stringify(state || emptyState()))
       }, null, 2);
     },
+    exportTrackerMarkdown: function () {
+      var logs = (state && state.trackerLogs) ? state.trackerLogs.slice() : [];
+      if (!logs.length) return '# 日常打卡记录\n\n（还没有任何打卡）\n';
+      logs.sort(function (a, b) { return a.start < b.start ? 1 : (a.start > b.start ? -1 : b.id - a.id); });
+      var byDate = {};
+      logs.forEach(function (l) {
+        var d = dtDate(l.start);
+        (byDate[d] = byDate[d] || []).push(l);
+      });
+      var lines = ['# 日常打卡记录', '', '_导出时间：' + new Date().toLocaleString() + '_', ''];
+      Object.keys(byDate).sort().reverse().forEach(function (d) {
+        lines.push('## ' + d);
+        byDate[d].forEach(function (l) {
+          var def = trackerDef(l.key);
+          var name = def ? (def.emoji + ' ' + def.name) : l.key;
+          var line = '- ' + l.start.slice(11) + ' ' + name;
+          if (l.key === 'period') line += '（开始' + l.start.slice(11) + (l.end ? ' ~ 结束 ' + l.end.slice(5) : ' · 进行中') + '）';
+          if (l.note) line += '：' + l.note;
+          lines.push(line);
+        });
+        lines.push('');
+      });
+      return lines.join('\n');
+    },
 
     importData: function (jsonString) {
       if (typeof jsonString !== 'string' || !jsonString.trim()) return { ok: false, error: '内容为空' };
@@ -493,9 +632,13 @@
         records: incoming.records.map(normRecord),
         favorites: Array.isArray(incoming.favorites)
           ? incoming.favorites.map(function (f) { var n = normRecord(f); n.favId = f.favId || ('f' + (f.id || 0)); return n; })
+          : [],
+        trackerLogs: Array.isArray(incoming.trackerLogs)
+          ? incoming.trackerLogs.map(normTrackerLog).filter(Boolean)
           : []
       };
       seq = state.records.reduce(function (m, r) { return Math.max(m, r.id || 0); }, 0) + 1;
+      tseq = state.trackerLogs.reduce(function (m, l) { return Math.max(m, l.id || 0); }, 0) + 1;
       persist();
       return { ok: true, count: state.records.length };
     }
