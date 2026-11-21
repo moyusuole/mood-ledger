@@ -90,7 +90,7 @@
     { key: 'call',     name: '给家里打电话', emoji: '📞', color: '#6d4c9f' }, // 紫
     { key: 'message',  name: '给家里发信息', emoji: '💬', color: '#795548' }, // 深棕
     { key: 'talk',     name: '必要沟通',     emoji: '🗣️', color: '#00796b' }, // 深青绿
-    { key: 'shopping', name: '网购',         emoji: '🛒', color: '#7b1fa2' }, // 深紫
+    { key: 'shopping', name: '网购',         emoji: '🛒', color: '#33691e' }, // 深墨绿(与紫色系打电话拉开)
     { key: 'jiang_l',  name: '蒋洗衣液',     emoji: '🧴', color: '#afb42b' }, // 黄绿
     { key: 'xu_l',     name: '徐洗衣液',     emoji: '🫧', color: '#880e4f' }, // 深玫红
     { key: 'wo_l',     name: '我洗衣液',     emoji: '🧺', color: '#b71c1c' }  // 深红
